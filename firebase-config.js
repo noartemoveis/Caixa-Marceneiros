@@ -19,4 +19,4 @@ export const ADMIN_EMAIL = 'noartemoveis@gmail.com';
 
 // 3) Endereço do script de avisos por e-mail (Google Apps Script).
 //    Enquanto estiver "COLE_AQUI", o app funciona normalmente, só não manda e-mail.
-export const EMAIL_WEBHOOK_URL = 'COLE_AQUI';
+export const EMAIL_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbzqHXhRkQ4GoPpUvUxkDUDCA7dN2ckClgJe_5JNW0mHfRZ1O4IrQs4iJxQhhnFEfwj0Hw/exec';
