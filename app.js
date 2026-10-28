@@ -226,10 +226,10 @@ const valorVisivel = v => (state.saldoOculto ? 'R$ ••••' : formatMoney(v
 function brandBlock() {
   return `
     <div class="login-brand">
-      <div class="logo logo-lg">NA</div>
+      <img class="login-logo" src="logo.png" alt="Nô Art Móveis">
       <div>
         <h1>Caixa dos Marceneiros</h1>
-        <p>Nô Art · Gestão Financeira</p>
+        <p>Gestão Financeira</p>
       </div>
     </div>`;
 }
@@ -334,7 +334,7 @@ function viewAdmin() {
   return `
     <header class="topbar">
       <div class="brand">
-        <div class="logo">NA</div>
+        <img class="logo" src="logo-simbolo.png" alt="Nô Art">
         <div><strong>Olá, Administrador</strong><small>Caixa dos Marceneiros</small></div>
       </div>
       <button class="icon-btn" data-action="logout" title="Sair">${icon('logout')}</button>

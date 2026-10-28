@@ -3,7 +3,7 @@
 /* Service worker: guarda os arquivos do app para abrir rápido e sem internet.
    Sempre tenta a versão mais nova primeiro; se não tiver internet, usa a guardada. */
 
-const CACHE = 'caixa-marceneiros-v4';
+const CACHE = 'caixa-marceneiros-v5';
 const FILES = [
   './',
   './index.html',
@@ -12,7 +12,9 @@ const FILES = [
   './store.js',
   './app.js',
   './manifest.webmanifest',
-  './icon.svg',
+  './favicon.png',
+  './logo.png',
+  './logo-simbolo.png',
   './icon-192.png',
   './icon-512.png',
 ];
