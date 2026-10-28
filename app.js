@@ -9,14 +9,6 @@ import * as Store from './store.js';
 const LEMBRAR_KEY = 'caixa_ultimo_email';
 const SITE_URL = location.origin + location.pathname;
 
-const PERIODOS = [
-  ['mes', 'Este mês'],
-  ['30d', '30 dias'],
-  ['futuros', 'Agendados'],
-  ['tudo', 'Tudo'],
-  ['custom', 'Escolher datas'],
-];
-
 const STATUS_PEDIDO = {
   pendente: ['Aguardando', 'tag'],
   aprovado: ['Aprovado', 'tag tag-green'],
@@ -142,6 +134,9 @@ const ICONS = {
   send: '<path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z"/>',
   arrowUp: '<path d="M12 19V5M5 12l7-7 7 7"/>',
   arrowDown: '<path d="M12 5v14M19 12l-7 7-7-7"/>',
+  calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
+  chevronLeft: '<path d="M15 18l-6-6 6-6"/>',
+  chevronRight: '<path d="M9 18l6-6-6-6"/>',
 };
 
 const icon = name =>
@@ -157,9 +152,7 @@ const state = {
   pedidos: [],
   carregados: new Set(), // nomes das coleções que já chegaram do banco
   contaId: null,
-  periodo: 'mes',
-  inicio: '',
-  fim: '',
+  filtro: { inicio: null, fim: null }, // período do extrato na tela (null = todo o histórico)
   saldoOculto: false,
 };
 
@@ -209,16 +202,19 @@ function disponivelParaPedido(marcId) {
   return Math.max(0, limiteRetirada(lancamentosDe(marcId), today()) - aguardando);
 }
 
-// Saldo disponível = só o que já aconteceu. Parcelas futuras ficam "agendadas".
+// Saldo disponível = só o que já aconteceu.
+// Serviços com liberação agendada e parcelas futuras ficam separados.
 function resumoConta(lancamentos) {
   const hoje = today();
   let saldo = 0;
-  let futuro = 0;
+  let aLiberar = 0;
+  let aDescontar = 0;
   for (const l of lancamentos) {
     if (l.data <= hoje) saldo += sinal(l) * l.valor;
-    else futuro += sinal(l) * l.valor;
+    else if (l.tipo === 'credito') aLiberar += l.valor;
+    else aDescontar += l.valor;
   }
-  return { saldo, futuro };
+  return { saldo, aLiberar, aDescontar };
 }
 
 // Saldo no fim de cada dia, para mostrar no extrato
@@ -234,30 +230,23 @@ function saldosDiarios(lancamentos) {
   return porDia;
 }
 
-function intervaloPeriodo() {
+function esteMes() {
   const hoje = today();
-  switch (state.periodo) {
-    case 'mes': return [hoje.slice(0, 8) + '01', endOfMonth(hoje)];
-    case '30d': return [addDays(hoje, -30), hoje];
-    case 'futuros': return [addDays(hoje, 1), null];
-    case 'custom': return [state.inicio || null, state.fim || null];
-    default: return [null, null];
-  }
+  return { inicio: hoje.slice(0, 8) + '01', fim: endOfMonth(hoje) };
 }
 
-// Atalhos de período da janela do extrato em PDF
-function intervaloAtalho(atalho) {
-  const hoje = today();
-  const [ano, mes] = hoje.split('-').map(Number);
-  switch (atalho) {
-    case 'mes-passado': {
-      const inicio = toIso(new Date(ano, mes - 2, 1));
-      return [inicio, endOfMonth(inicio)];
-    }
-    case '30d': return [addDays(hoje, -30), hoje];
-    case 'ano': return [`${ano}-01-01`, hoje];
-    default: return [hoje.slice(0, 8) + '01', endOfMonth(hoje)];
-  }
+// "2026-10" → "Outubro de 2026"
+function nomeDoMes(mes) {
+  const nome = fromIso(mes + '-01').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+  return nome[0].toUpperCase() + nome.slice(1);
+}
+
+// Texto do botão de período: "outubro de 2026", "01/10 – 15/10" ou "Todo o histórico"
+function rotuloPeriodo({ inicio, fim }) {
+  if (!inicio) return 'Todo o histórico';
+  if (inicio.endsWith('-01') && fim === endOfMonth(inicio)) return nomeDoMes(inicio.slice(0, 7));
+  const curta = iso => (iso.slice(0, 4) === today().slice(0, 4) ? formatDate(iso).slice(0, 5) : formatDate(iso));
+  return inicio === fim ? curta(inicio) : `${curta(inicio)} – ${curta(fim)}`;
 }
 
 const valorVisivel = v => (state.saldoOculto ? 'R$ ••••' : formatMoney(v));
@@ -416,8 +405,12 @@ function viewConta() {
   if (!m || !carregado()) return viewContaIndisponivel();
 
   const todos = lancamentosDe(m.id);
-  const { saldo, futuro } = resumoConta(todos);
-  const [inicio, fim] = intervaloPeriodo();
+  const { saldo, aLiberar, aDescontar } = resumoConta(todos);
+  const { inicio, fim } = state.filtro;
+  const agendados = [
+    aLiberar && `A liberar: ${valorVisivel(aLiberar)}`,
+    aDescontar && `Parcelas futuras: ${valorVisivel(aDescontar)}`,
+  ].filter(Boolean).join(' · ') || 'Nenhum lançamento agendado';
   const doPeriodo = todos.filter(l => (!inicio || l.data >= inicio) && (!fim || l.data <= fim));
   const entradas = doPeriodo.filter(l => l.tipo === 'credito').reduce((s, l) => s + l.valor, 0);
   const saidas = doPeriodo.filter(l => l.tipo === 'debito').reduce((s, l) => s + l.valor, 0);
@@ -462,16 +455,6 @@ function viewConta() {
       <div class="pedido-list">${pedidos.map(p => pedidoHtml(p, { mostrarNome: false, mostrarBotoes: isAdmin() })).join('')}</div>
     </section>` : '';
 
-  const chips = PERIODOS.map(([id, label]) =>
-    `<button class="chip${state.periodo === id ? ' active' : ''}" data-action="periodo" data-periodo="${id}">${label}</button>`).join('');
-
-  const datas = state.periodo === 'custom' ? `
-    <div class="custom-range">
-      <input type="date" data-filter="inicio" value="${state.inicio}" aria-label="Data inicial">
-      <span>até</span>
-      <input type="date" data-filter="fim" value="${state.fim}" aria-label="Data final">
-    </div>` : '';
-
   return `
     <div class="conta">
       ${header}
@@ -479,7 +462,7 @@ function viewConta() {
       <section class="balance-card">
         <div class="balance-top"><span>Saldo disponível</span>${eyeButton()}</div>
         <strong class="balance-value${saldo < 0 ? ' is-negative' : ''}">${valorVisivel(saldo)}</strong>
-        ${futuro ? `<small>Agendado: ${valorVisivel(futuro)}</small>` : '<small>Nenhum lançamento agendado</small>'}
+        <small>${agendados}</small>
       </section>
 
       <nav class="quick-actions">${acoes}</nav>
@@ -487,9 +470,10 @@ function viewConta() {
       ${blocoPedidos}
 
       <section>
-        <div class="section-head"><h2>Extrato</h2></div>
-        <div class="chips">${chips}</div>
-        ${datas}
+        <div class="section-head">
+          <h2>Extrato</h2>
+          <button class="period-btn" data-action="abrir-periodo">${icon('calendar')} ${rotuloPeriodo(state.filtro)}</button>
+        </div>
         <div class="period-summary">
           <div><small>Entradas</small><strong class="pos">${formatMoney(entradas)}</strong></div>
           <div><small>Saídas</small><strong class="neg">${formatMoney(saidas)}</strong></div>
@@ -524,7 +508,8 @@ function extratoHtml(todos, lancamentos) {
 
 function lancamentoHtml(l) {
   const credito = l.tipo === 'credito';
-  const detalhe = credito ? (l.cliente ? `Cliente: ${l.cliente}` : 'Serviço') : 'Retirada';
+  let detalhe = credito ? (l.cliente ? `Cliente: ${l.cliente}` : 'Serviço') : 'Retirada';
+  if (credito && l.data > today()) detalhe = `Libera em ${formatDate(l.data)}`;
   return `
     <button class="tx${l.data > today() ? ' tx-future' : ''}" data-action="ver-lancamento" data-id="${l.id}">
       <span class="tx-icon ${credito ? 'in' : 'out'}">${icon(credito ? 'arrowUp' : 'arrowDown')}</span>
@@ -558,7 +543,7 @@ function go(screen) {
 
 function openConta(id) {
   state.contaId = id;
-  state.periodo = 'mes';
+  state.filtro = esteMes();
   go('conta');
 }
 
@@ -569,7 +554,7 @@ let pararEscutas = [];
 function aoMudarLogin(user) {
   pararEscutas.forEach(parar => parar());
   pararEscutas = [];
-  Object.assign(state, { user, marceneiros: [], lancamentos: [], pedidos: [], saldoOculto: false });
+  Object.assign(state, { user, marceneiros: [], lancamentos: [], pedidos: [], saldoOculto: false, filtro: esteMes() });
   state.carregados.clear();
 
   if (!user) {
@@ -608,23 +593,60 @@ function openDialog(id, valores = {}) {
     Object.entries(valores).forEach(([name, value]) => { form.elements[name].value = value; });
   }
   if (id === 'dlg-parcelado') updateParceladoPreview();
+  if (id === 'dlg-servico') atualizarAgendaServico(form);
   dialog.showModal();
+}
+
+// Janela de confirmação no visual do app (no lugar do confirm() do navegador).
+// Responde true só se a pessoa tocar no botão de confirmar.
+let respostaConfirmacao = null;
+
+function confirmar({ titulo, corpo, botao, tom = 'primary' }) {
+  $('#confirmar-titulo').textContent = titulo;
+  $('#confirmar-corpo').innerHTML = corpo;
+  const ok = $('#confirmar-ok');
+  ok.textContent = botao;
+  ok.className = `btn btn-${tom}`;
+  $('#dlg-confirmar').showModal();
+  return new Promise(resolve => { respostaConfirmacao = resolve; });
+}
+
+function responderConfirmacao(sim) {
+  $('#dlg-confirmar').close();
+  respostaConfirmacao?.(sim);
+  respostaConfirmacao = null;
+}
+
+const detalhesHtml = linhas => `
+  <dl class="detail-list">
+    ${linhas.map(([rotulo, valor]) => `<div><dt>${rotulo}</dt><dd>${escapeHtml(valor)}</dd></div>`).join('')}
+  </dl>`;
+
+// Serviço: "Liberar agora" ou "Agendar" (aí aparece a data de liberação)
+function atualizarAgendaServico(form) {
+  const agendar = form.elements.liberacao.value === 'agendar';
+  const campo = form.elements.data;
+  $('#servico-agenda').hidden = !agendar;
+  campo.required = agendar;
+  campo.min = addDays(today(), 1);
+  if (agendar && campo.value <= today()) campo.value = addDays(today(), 1);
 }
 
 function openLancamento(id) {
   const m = contaAtual();
   const l = state.lancamentos.find(x => x.id === id);
   const credito = l.tipo === 'credito';
+  const futuro = l.data > today();
 
   $('#lancamento-body').innerHTML = `
     <div class="detail-amount ${credito ? 'pos' : 'neg'}">${credito ? '+' : '−'} ${formatMoney(l.valor)}</div>
-    <p class="detail-type">${credito ? 'Serviço (entrada)' : 'Retirada (saída)'}${l.data > today() ? ' · Agendado' : ''}</p>
-    <dl class="detail-list">
-      <div><dt>Data</dt><dd>${formatDate(l.data)}</dd></div>
-      <div><dt>Descrição</dt><dd>${escapeHtml(l.desc)}</dd></div>
-      ${l.cliente ? `<div><dt>Cliente</dt><dd>${escapeHtml(l.cliente)}</dd></div>` : ''}
-      <div><dt>Conta</dt><dd>${escapeHtml(m.nome)}</dd></div>
-    </dl>
+    <p class="detail-type">${credito ? 'Serviço (entrada)' : 'Retirada (saída)'}${futuro ? ' · Agendado' : ''}</p>
+    ${detalhesHtml([
+      [credito && futuro ? 'Libera em' : 'Data', formatDate(l.data)],
+      ['Descrição', l.desc],
+      ...(l.cliente ? [['Cliente', l.cliente]] : []),
+      ['Conta', m.nome],
+    ])}
     ${isAdmin() ? `<button class="btn btn-danger btn-block" data-action="excluir-lancamento" data-id="${l.id}">Excluir lançamento</button>` : ''}`;
 
   $('#dlg-lancamento').showModal();
@@ -637,6 +659,91 @@ function updateParceladoPreview() {
   $('#parcelado-preview').textContent = total > 0 && parcelas > 0
     ? `${parcelas}x de ${formatMoney(total / parcelas)}`
     : '';
+}
+
+// ================= CALENDÁRIO DE PERÍODO =================
+// Usado para filtrar o extrato na tela (modo 'filtro') e para gerar o PDF (modo 'pdf').
+// Toque no primeiro dia e depois no último para marcar o período.
+
+let cal = { modo: 'filtro', mes: '', inicio: null, fim: null };
+
+function abrirPeriodo(modo) {
+  const { inicio, fim } = state.filtro;
+  cal = { modo, inicio, fim, mes: (inicio ?? today()).slice(0, 7) };
+  $('#periodo-titulo').textContent = modo === 'pdf' ? 'Extrato em PDF' : 'Período do extrato';
+  $('#periodo-ok').textContent = modo === 'pdf' ? 'Gerar PDF' : 'Aplicar';
+  renderCalendario();
+  $('#dlg-periodo').showModal();
+}
+
+function renderCalendario() {
+  const { mes, inicio, fim } = cal;
+  const [ano, numMes] = mes.split('-').map(Number);
+  const vazios = new Date(ano, numMes - 1, 1).getDay();
+  const diasNoMes = new Date(ano, numMes, 0).getDate();
+  const hoje = today();
+
+  let dias = '<span></span>'.repeat(vazios);
+  for (let d = 1; d <= diasNoMes; d++) {
+    const dia = `${mes}-${pad(d)}`;
+    const classes = ['cal-dia'];
+    if (dia === hoje) classes.push('hoje');
+    if (inicio && fim && dia > inicio && dia < fim) classes.push('no-meio');
+    if (dia === inicio || dia === fim) classes.push('marcado');
+    dias += `<button type="button" class="${classes.join(' ')}" data-action="cal-dia" data-dia="${dia}">${d}</button>`;
+  }
+
+  const semana = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'].map(d => `<span>${d}</span>`).join('');
+  $('#calendario').innerHTML = `
+    <div class="cal-topo">
+      <button type="button" class="icon-btn sm" data-action="cal-mes" data-passo="-1" aria-label="Mês anterior">${icon('chevronLeft')}</button>
+      <strong>${nomeDoMes(mes)}</strong>
+      <button type="button" class="icon-btn sm" data-action="cal-mes" data-passo="1" aria-label="Próximo mês">${icon('chevronRight')}</button>
+    </div>
+    <div class="cal-semana">${semana}</div>
+    <div class="cal-dias">${dias}</div>`;
+
+  const mesAtual = esteMes();
+  $('#periodo-resumo').textContent = !inicio ? 'Todo o histórico'
+    : !fim ? `A partir de ${formatDate(inicio)} · toque no último dia`
+    : `${formatDate(inicio)} a ${formatDate(fim)}`;
+  document.querySelectorAll('[data-action="periodo-rapido"]').forEach(b => {
+    const ativo = b.dataset.rapido === 'tudo'
+      ? !inicio
+      : inicio === mesAtual.inicio && fim === mesAtual.fim;
+    b.classList.toggle('active', ativo);
+  });
+}
+
+function mudarMesCalendario(passo) {
+  const [ano, mes] = cal.mes.split('-').map(Number);
+  cal.mes = toIso(new Date(ano, mes - 1 + passo, 1)).slice(0, 7);
+  renderCalendario();
+}
+
+function escolherDia(dia) {
+  if (!cal.inicio || cal.fim) {
+    cal.inicio = dia;
+    cal.fim = null;
+  } else if (dia < cal.inicio) {
+    [cal.inicio, cal.fim] = [dia, cal.inicio];
+  } else {
+    cal.fim = dia;
+  }
+  renderCalendario();
+}
+
+function confirmarPeriodo() {
+  const inicio = cal.inicio;
+  const fim = cal.inicio ? (cal.fim ?? cal.inicio) : null; // um dia só também vale
+  $('#dlg-periodo').close();
+  if (cal.modo === 'pdf') {
+    // Espera a janela fechar para ela não sair na impressão
+    setTimeout(() => imprimirExtrato(contaAtual(), inicio, fim), 150);
+  } else {
+    state.filtro = { inicio, fim };
+    render();
+  }
 }
 
 // ================= EXTRATO EM PDF =================
@@ -715,6 +822,11 @@ function extratoParaImpressao(m, inicio, fim) {
 }
 
 async function imprimirExtrato(m, inicio, fim) {
+  // "Todo o histórico": do primeiro lançamento até hoje (ou até a última data agendada)
+  const datas = lancamentosDe(m.id).map(l => l.data).sort();
+  inicio ??= datas[0] ?? today();
+  fim ??= [today(), datas.at(-1) ?? ''].sort().at(-1);
+
   const area = $('#print-area');
   area.innerHTML = extratoParaImpressao(m, inicio, fim);
   await area.querySelector('img').decode().catch(() => {}); // espera o logo carregar
@@ -738,10 +850,21 @@ async function responderPedido(id, aprovar) {
       return;
     }
   }
-  const pergunta = aprovar
-    ? `Aprovar ${formatMoney(p.valor)} para ${m.nome}? A retirada entra no extrato com a data de hoje.`
-    : `Recusar o pedido de ${formatMoney(p.valor)} de ${m.nome}?`;
-  if (!confirm(pergunta)) return;
+  const saldoDepois = resumoConta(lancamentosDe(m.id)).saldo - p.valor;
+  const confirmado = await confirmar({
+    titulo: aprovar ? 'Aprovar retirada' : 'Recusar pedido',
+    corpo: `
+      <div class="detail-amount ${aprovar ? 'neg' : ''}">${formatMoney(p.valor)}</div>
+      ${detalhesHtml([
+        ['Marceneiro', m.nome],
+        ['Motivo', p.motivo || 'Não informado'],
+        ...(aprovar ? [['Data no extrato', `Hoje, ${formatDate(today())}`], ['Saldo depois', formatMoney(saldoDepois)]] : []),
+      ])}
+      <p class="hint">${escapeHtml(firstName(m.nome))} recebe um aviso por e-mail.</p>`,
+    botao: aprovar ? 'Aprovar' : 'Recusar',
+    tom: aprovar ? 'green' : 'red',
+  });
+  if (!confirmado) return;
 
   try {
     if (aprovar) await Store.aprovarPedido(p, m, today());
@@ -772,20 +895,16 @@ const actions = {
     state.saldoOculto = !state.saldoOculto;
     render();
   },
-  'periodo': el => {
-    state.periodo = el.dataset.periodo;
-    render();
+  'abrir-periodo': () => abrirPeriodo('filtro'),
+  'imprimir': () => abrirPeriodo('pdf'),
+  'periodo-rapido': el => {
+    const { inicio, fim } = el.dataset.rapido === 'tudo' ? { inicio: null, fim: null } : esteMes();
+    Object.assign(cal, { inicio, fim, mes: (inicio ?? today()).slice(0, 7) });
+    renderCalendario();
   },
-  'imprimir': () => {
-    const [inicio, fim] = intervaloAtalho('mes');
-    openDialog('dlg-extrato', { inicio, fim });
-  },
-  'extrato-atalho': el => {
-    const [inicio, fim] = intervaloAtalho(el.dataset.atalho);
-    const form = el.closest('form');
-    form.elements.inicio.value = inicio;
-    form.elements.fim.value = fim;
-  },
+  'cal-mes': el => mudarMesCalendario(Number(el.dataset.passo)),
+  'cal-dia': el => escolherDia(el.dataset.dia),
+  'periodo-confirmar': confirmarPeriodo,
 
   'ver-senha': el => {
     const input = el.parentElement.querySelector('input');
@@ -806,6 +925,8 @@ const actions = {
   },
 
   'close': el => el.closest('dialog').close(),
+  'confirmar-sim': () => responderConfirmacao(true),
+  'confirmar-nao': () => responderConfirmacao(false),
   'new-marceneiro': () => openDialog('dlg-marceneiro'),
   'edit-marceneiro': () => {
     const m = contaAtual();
@@ -836,8 +957,14 @@ const actions = {
 
   'delete-marceneiro': async el => {
     const m = contaAtual();
-    if (!confirm(`Excluir a conta de ${m.nome} e todo o histórico? Isso não pode ser desfeito.`)) return;
     el.closest('dialog').close();
+    const confirmado = await confirmar({
+      titulo: 'Excluir conta',
+      corpo: `<p>Excluir a conta de <b>${escapeHtml(m.nome)}</b> com todo o histórico e os pedidos? Isso não pode ser desfeito.</p>`,
+      botao: 'Excluir conta',
+      tom: 'red',
+    });
+    if (!confirmado) return;
     try {
       await Store.removeMarceneiro(m.id);
       toast('Conta excluída.');
@@ -847,8 +974,15 @@ const actions = {
     }
   },
   'excluir-lancamento': async el => {
-    if (!confirm('Tem certeza que deseja excluir este lançamento?')) return;
+    const l = state.lancamentos.find(x => x.id === el.dataset.id);
     el.closest('dialog').close();
+    const confirmado = await confirmar({
+      titulo: 'Excluir lançamento',
+      corpo: `<p>Excluir <b>${escapeHtml(l.desc)}</b> de <b>${formatMoney(l.valor)}</b>? Isso não pode ser desfeito.</p>`,
+      botao: 'Excluir',
+      tom: 'red',
+    });
+    if (!confirmado) return;
     try {
       await Store.removeLancamento(el.dataset.id);
       toast('Lançamento excluído.');
@@ -862,14 +996,6 @@ const actions = {
 // Cada função recebe os campos do formulário. Retornar false mantém a janela aberta.
 
 const forms = {
-  extrato(f) {
-    const inicio = f.inicio.value;
-    const fim = f.fim.value;
-    if (inicio > fim) return fail('A data inicial precisa ser antes da data final.');
-    // Espera a janela fechar para ela não sair na impressão
-    setTimeout(() => imprimirExtrato(contaAtual(), inicio, fim), 150);
-  },
-
   async login(f) {
     await Store.login(f.email.value, f.senha.value);
   },
@@ -884,17 +1010,21 @@ const forms = {
     toast('Conta atualizada.');
   },
 
+  // Agendado: o valor só entra no saldo disponível na data de liberação
   async servico(f) {
     const valor = parseMoney(f.valor.value);
     if (!(valor > 0)) return fail('Informe um valor maior que zero.');
+    const agendado = f.liberacao.value === 'agendar';
+    const data = agendado ? f.data.value : today();
+    if (agendado && data <= today()) return fail('Para agendar, escolha uma data a partir de amanhã.');
     await Store.addLancamento(contaAtual(), {
       tipo: 'credito',
-      data: f.data.value,
+      data,
       desc: f.desc.value.trim(),
       cliente: f.cliente.value.trim(),
       valor,
     });
-    toast('Serviço lançado!');
+    toast(agendado ? `Serviço agendado: o valor libera em ${formatDate(data)}.` : 'Serviço lançado!');
   },
 
   async retirada(f) {
@@ -904,7 +1034,9 @@ const forms = {
     if (valor > limite + CENTAVO) {
       return fail(`Saldo insuficiente. Disponível para retirada nessa data: ${formatMoney(limite)}.`);
     }
-    await Store.addLancamento(contaAtual(), { tipo: 'debito', data: f.data.value, desc: f.desc.value.trim(), valor });
+    const obs = f.obs.value.trim();
+    const desc = obs ? `${f.forma.value} - ${obs}` : f.forma.value;
+    await Store.addLancamento(contaAtual(), { tipo: 'debito', data: f.data.value, desc, valor });
     toast('Retirada registrada!');
   },
 
@@ -977,10 +1109,7 @@ document.addEventListener('input', e => {
 });
 
 document.addEventListener('change', e => {
-  const filtro = e.target.dataset.filter;
-  if (!filtro) return;
-  state[filtro] = e.target.value;
-  render();
+  if (e.target.name === 'liberacao') atualizarAgendaServico(e.target.form);
 });
 
 // ================= INÍCIO =================

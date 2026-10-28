@@ -98,9 +98,17 @@
         <span>Cliente (opcional)</span>
         <input name="cliente" autocomplete="off" placeholder="Ex: João da Silva">
       </label>
-      <label class="field">
-        <span>Data</span>
-        <input type="date" name="data" required>
+      <div class="field">
+        <span>Liberação do valor</span>
+        <div class="opcoes opcoes-2">
+          <label class="opcao"><input type="radio" name="liberacao" value="agora" checked><span>Liberar agora</span></label>
+          <label class="opcao"><input type="radio" name="liberacao" value="agendar"><span>Agendar</span></label>
+        </div>
+      </div>
+      <label class="field" id="servico-agenda" hidden>
+        <span>Disponível a partir de</span>
+        <input type="date" name="data">
+        <small class="hint">Até essa data o valor aparece como "a liberar" e não pode ser retirado.</small>
       </label>
       <div class="sheet-actions">
         <button type="button" class="btn btn-ghost" data-action="close">Cancelar</button>
@@ -126,15 +134,18 @@
           <input name="valor" data-money inputmode="numeric" required placeholder="0,00" autocomplete="off" autofocus>
         </div>
       </label>
+      <div class="field">
+        <span>Forma</span>
+        <div class="opcoes opcoes-4">
+          <label class="opcao"><input type="radio" name="forma" value="PIX" checked><span>PIX</span></label>
+          <label class="opcao"><input type="radio" name="forma" value="Vale"><span>Vale</span></label>
+          <label class="opcao"><input type="radio" name="forma" value="Adiantamento"><span>Adiantamento</span></label>
+          <label class="opcao"><input type="radio" name="forma" value="Dinheiro"><span>Dinheiro</span></label>
+        </div>
+      </div>
       <label class="field">
-        <span>Descrição</span>
-        <input name="desc" required autocomplete="off" list="sugestoes-retirada" placeholder="Ex: PIX">
-        <datalist id="sugestoes-retirada">
-          <option value="PIX">
-          <option value="Vale">
-          <option value="Adiantamento">
-          <option value="Dinheiro">
-        </datalist>
+        <span>Observação (opcional)</span>
+        <input name="obs" autocomplete="off" maxlength="80" placeholder="Ex: conta de luz">
       </label>
       <label class="field">
         <span>Data</span>
@@ -217,38 +228,43 @@
     </form>
   </dialog>
 
-  <!-- ==================== EXTRATO EM PDF (todos) ==================== -->
+  <!-- ==================== PERÍODO: FILTRO DO EXTRATO E PDF (todos) ==================== -->
 
-  <dialog id="dlg-extrato">
-    <form class="sheet" data-form="extrato">
+  <dialog id="dlg-periodo">
+    <div class="sheet">
       <div class="sheet-head">
         <div>
-          <h3>Extrato em PDF</h3>
-          <p class="hint">Escolha o período. Depois é só imprimir ou salvar como PDF.</p>
+          <h3 id="periodo-titulo">Período do extrato</h3>
+          <p class="hint" id="periodo-resumo"></p>
         </div>
         <button type="button" class="icon-btn sm" data-action="close" aria-label="Fechar">✕</button>
       </div>
-      <div class="chips chips-wrap">
-        <button type="button" class="chip" data-action="extrato-atalho" data-atalho="mes">Este mês</button>
-        <button type="button" class="chip" data-action="extrato-atalho" data-atalho="mes-passado">Mês passado</button>
-        <button type="button" class="chip" data-action="extrato-atalho" data-atalho="30d">Últimos 30 dias</button>
-        <button type="button" class="chip" data-action="extrato-atalho" data-atalho="ano">Este ano</button>
+      <div class="segmented">
+        <button type="button" data-action="periodo-rapido" data-rapido="mes">Este mês</button>
+        <button type="button" data-action="periodo-rapido" data-rapido="tudo">Tudo</button>
       </div>
-      <div class="field-row">
-        <label class="field">
-          <span>De</span>
-          <input type="date" name="inicio" required>
-        </label>
-        <label class="field">
-          <span>Até</span>
-          <input type="date" name="fim" required>
-        </label>
-      </div>
+      <div id="calendario"></div>
       <div class="sheet-actions">
         <button type="button" class="btn btn-ghost" data-action="close">Cancelar</button>
-        <button class="btn btn-primary">Gerar extrato</button>
+        <button type="button" class="btn btn-primary" id="periodo-ok" data-action="periodo-confirmar">Aplicar</button>
       </div>
-    </form>
+    </div>
+  </dialog>
+
+  <!-- ==================== CONFIRMAÇÃO (todos) ==================== -->
+
+  <dialog id="dlg-confirmar">
+    <div class="sheet">
+      <div class="sheet-head">
+        <h3 id="confirmar-titulo"></h3>
+        <button type="button" class="icon-btn sm" data-action="confirmar-nao" aria-label="Fechar">✕</button>
+      </div>
+      <div id="confirmar-corpo"></div>
+      <div class="sheet-actions">
+        <button type="button" class="btn btn-ghost" data-action="confirmar-nao">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="confirmar-ok" data-action="confirmar-sim">Confirmar</button>
+      </div>
+    </div>
   </dialog>
 
   <!-- ==================== COMPROVANTE (todos) ==================== -->
