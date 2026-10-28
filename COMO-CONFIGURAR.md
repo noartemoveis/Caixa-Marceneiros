@@ -59,7 +59,7 @@ Quando um marceneiro pede uma retirada, **você recebe um e-mail**. Quando você
 
 1. Crie uma conta grátis em <https://github.com>.
 2. Instale o **GitHub Desktop**: <https://desktop.github.com>. Abra e entre com a conta do GitHub.
-3. No GitHub Desktop: **File > Add local repository**, escolha a pasta do projeto e clique em **create a repository** quando ele oferecer. Depois, **Create repository**.
+3. No GitHub Desktop: **File > Add local repository** e escolha a pasta **Documentos\Caixa Marceneiros**. Ela já tem versões salvas, então ele reconhece direto.
 4. Clique em **Publish repository**. **Desmarque** "Keep this code private" (o site grátis do GitHub exige repositório público) e confirme.
 5. No site do GitHub, abra o repositório e vá em **Settings > Pages**. Em **Branch**, escolha `main` e a pasta `/ (root)`, depois clique em **Save**.
 6. Em 1 ou 2 minutos aparece o endereço do site, algo como `https://seu-usuario.github.io/caixa-marceneiros/`.
