@@ -3,7 +3,7 @@
 /* Service worker: guarda os arquivos do app para abrir rápido e sem internet.
    Sempre tenta a versão mais nova primeiro; se não tiver internet, usa a guardada. */
 
-const CACHE = 'caixa-marceneiros-v3';
+const CACHE = 'caixa-marceneiros-v4';
 const FILES = [
   './',
   './index.html',
@@ -33,8 +33,9 @@ self.addEventListener('fetch', event => {
   const { request } = event;
   if (request.method !== 'GET' || new URL(request.url).origin !== location.origin) return;
 
+  // "no-cache" confere no servidor se há versão nova, em vez de usar a cópia guardada pelo navegador
   event.respondWith(
-    fetch(request)
+    fetch(request, { cache: 'no-cache' })
       .then(response => {
         const copy = response.clone();
         caches.open(CACHE).then(cache => cache.put(request, copy));
