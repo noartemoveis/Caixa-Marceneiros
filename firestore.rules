@@ -1,0 +1,58 @@
+rules_version = '2';
+
+// Regras de segurança do Caixa dos Marceneiros.
+// Copie tudo e cole no Console do Firebase > Firestore Database > Regras.
+// TROQUE o e-mail abaixo pelo e-mail do administrador (o mesmo do firebase-config.js).
+//
+// Resumo: o administrador faz tudo. O marceneiro só LÊ os próprios dados
+// e só pode CRIAR pedidos de retirada para ele mesmo (sem editar nem apagar).
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAdmin() {
+      return request.auth != null
+        && request.auth.token.email.lower() == 'COLE_SEU_EMAIL_AQUI'.lower();
+    }
+
+    function isDono() {
+      return request.auth != null && resource.data.uid == request.auth.uid;
+    }
+
+    function lancamentoValido() {
+      let d = request.resource.data;
+      return d.tipo in ['credito', 'debito']
+        && d.valor is number && d.valor > 0
+        && d.data is string && d.desc is string
+        && d.marcId is string && d.uid is string;
+    }
+
+    // Pedido novo: sempre "pendente", do próprio marceneiro, ligado à conta dele
+    function pedidoProprioValido() {
+      let d = request.resource.data;
+      return request.auth != null
+        && d.uid == request.auth.uid
+        && d.status == 'pendente'
+        && d.valor is number && d.valor > 0
+        && d.motivo is string && d.motivo.size() <= 200
+        && get(/databases/$(database)/documents/marceneiros/$(d.marcId)).data.uid == request.auth.uid;
+    }
+
+    match /marceneiros/{id} {
+      allow read: if isAdmin() || isDono();
+      allow write: if isAdmin();
+    }
+
+    match /lancamentos/{id} {
+      allow read: if isAdmin() || isDono();
+      allow create, update: if isAdmin() && lancamentoValido();
+      allow delete: if isAdmin();
+    }
+
+    match /pedidos/{id} {
+      allow read: if isAdmin() || isDono();
+      allow create: if isAdmin() || pedidoProprioValido();
+      allow update, delete: if isAdmin();
+    }
+  }
+}

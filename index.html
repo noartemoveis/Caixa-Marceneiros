@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#A0522D">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Caixa Nô Art">
+  <title>Caixa dos Marceneiros - Nô Art</title>
+
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- As telas são desenhadas pelo app.js dentro deste elemento -->
+  <main id="app"></main>
+
+  <div id="toast-container" aria-live="polite"></div>
+
+  <!-- ==================== JANELAS DO ADMINISTRADOR ==================== -->
+
+  <!-- Novo marceneiro -->
+  <dialog id="dlg-marceneiro">
+    <form class="sheet" data-form="marceneiro">
+      <div class="sheet-head">
+        <h3>Novo marceneiro</h3>
+        <button type="button" class="icon-btn sm" data-action="close" aria-label="Fechar">✕</button>
+      </div>
+      <label class="field">
+        <span>Nome</span>
+        <input name="nome" required autocomplete="off" placeholder="Ex: Galeguinho" autofocus>
+      </label>
+      <label class="field">
+        <span>E-mail do marceneiro</span>
+        <input name="email" type="email" required autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="nome@gmail.com">
+      </label>
+      <p class="hint">Ele recebe um e-mail para criar a própria senha. Se não chegar, peça para olhar no spam.</p>
+      <div class="sheet-actions">
+        <button type="button" class="btn btn-ghost" data-action="close">Cancelar</button>
+        <button class="btn btn-primary">Cadastrar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Editar marceneiro -->
+  <dialog id="dlg-editar">
+    <form class="sheet" data-form="editar">
+      <div class="sheet-head">
+        <h3>Editar conta</h3>
+        <button type="button" class="icon-btn sm" data-action="close" aria-label="Fechar">✕</button>
+      </div>
+      <label class="field">
+        <span>Nome</span>
+        <input name="nome" required autocomplete="off">
+      </label>
+      <p class="hint" id="editar-email"></p>
+      <div class="sheet-actions">
+        <button type="button" class="btn btn-ghost" data-action="close">Cancelar</button>
+        <button class="btn btn-primary">Salvar</button>
+      </div>
+      <button type="button" class="btn btn-ghost" data-action="reenviar-senha">Enviar e-mail para criar nova senha</button>
+      <button type="button" class="btn btn-link-danger" data-action="delete-marceneiro">Excluir esta conta</button>
+    </form>
+  </dialog>
+
+  <!-- Serviço (entrada) -->
+  <dialog id="dlg-servico">
+    <form class="sheet" data-form="servico">
+      <div class="sheet-head">
+        <div>
+          <h3>Novo serviço</h3>
+          <p class="hint">Entrada na conta do marceneiro</p>
+        </div>
+        <button type="button" class="icon-btn sm" data-action="close" aria-label="Fechar">✕</button>
+      </div>
+      <label class="field">
+        <span>Valor</span>
+        <div class="money-field tone-green">
+          <span>R$</span>
+          <input name="valor" data-money inputmode="numeric" required placeholder="0,00" autocomplete="off" autofocus>
+        </div>
+      </label>
+      <label class="field">
+        <span>Descrição do serviço</span>
+        <input name="desc" required autocomplete="off" placeholder="Ex: Armário da cozinha">
+      </label>
+      <label class="field">
+        <span>Cliente (opcional)</span>
+        <input name="cliente" autocomplete="off" placeholder="Ex: João da Silva">
+      </label>
+      <label class="field">
+        <span>Data</span>
+        <input type="date" name="data" required>
+      </label>
+      <div class="sheet-actions">
+        <button type="button" class="btn btn-ghost" data-action="close">Cancelar</button>
+        <button class="btn btn-green">Lançar serviço</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Retirada (saída) -->
+  <dialog id="dlg-retirada">
+    <form class="sheet" data-form="retirada">
+      <div class="sheet-head">
+        <div>
+          <h3>Nova retirada</h3>
+          <p class="hint">Vale, PIX ou adiantamento</p>
+        </div>
+        <button type="button" class="icon-btn sm" data-action="close" aria-label="Fechar">✕</button>
+      </div>
+      <label class="field">
+        <span>Valor</span>
+        <div class="money-field tone-red">
+          <span>R$</span>
+          <input name="valor" data-money inputmode="numeric" required placeholder="0,00" autocomplete="off" autofocus>
+        </div>
+      </label>
+      <label class="field">
+        <span>Descrição</span>
+        <input name="desc" required autocomplete="off" list="sugestoes-retirada" placeholder="Ex: PIX">
+        <datalist id="sugestoes-retirada">
+          <option value="PIX">
+          <option value="Vale">
+          <option value="Adiantamento">
+          <option value="Dinheiro">
+        </datalist>
+      </label>
+      <label class="field">
+        <span>Data</span>
+        <input type="date" name="data" required>
+      </label>
+      <div class="sheet-actions">
+        <button type="button" class="btn btn-ghost" data-action="close">Cancelar</button>
+        <button class="btn btn-red">Registrar retirada</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Compra parcelada -->
+  <dialog id="dlg-parcelado">
+    <form class="sheet" data-form="parcelado" id="form-parcelado">
+      <div class="sheet-head">
+        <div>
+          <h3>Compra parcelada</h3>
+          <p class="hint">As parcelas são descontadas mês a mês, automaticamente.</p>
+        </div>
+        <button type="button" class="icon-btn sm" data-action="close" aria-label="Fechar">✕</button>
+      </div>
+      <label class="field">
+        <span>Valor total</span>
+        <div class="money-field tone-amber">
+          <span>R$</span>
+          <input name="total" data-money inputmode="numeric" required placeholder="0,00" autocomplete="off" autofocus>
+        </div>
+      </label>
+      <label class="field">
+        <span>Item comprado</span>
+        <input name="desc" required autocomplete="off" placeholder="Ex: Lixadeira Bosch">
+      </label>
+      <div class="field-row">
+        <label class="field">
+          <span>Parcelas</span>
+          <input type="number" name="parcelas" required min="1" max="60" step="1" inputmode="numeric" placeholder="Ex: 3">
+        </label>
+        <label class="field">
+          <span>1ª parcela</span>
+          <input type="date" name="data" required>
+        </label>
+      </div>
+      <p class="preview" id="parcelado-preview"></p>
+      <div class="sheet-actions">
+        <button type="button" class="btn btn-ghost" data-action="close">Cancelar</button>
+        <button class="btn btn-amber">Gerar parcelas</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- ==================== JANELA DO MARCENEIRO ==================== -->
+
+  <!-- Pedido de retirada -->
+  <dialog id="dlg-pedido">
+    <form class="sheet" data-form="pedido">
+      <div class="sheet-head">
+        <div>
+          <h3>Pedir retirada</h3>
+          <p class="hint">O administrador recebe seu pedido e responde por aqui.</p>
+        </div>
+        <button type="button" class="icon-btn sm" data-action="close" aria-label="Fechar">✕</button>
+      </div>
+      <label class="field">
+        <span>Valor</span>
+        <div class="money-field tone-accent">
+          <span>R$</span>
+          <input name="valor" data-money inputmode="numeric" required placeholder="0,00" autocomplete="off" autofocus>
+        </div>
+      </label>
+      <label class="field">
+        <span>Motivo (opcional)</span>
+        <input name="motivo" maxlength="200" autocomplete="off" placeholder="Ex: Adiantamento para conta de luz">
+      </label>
+      <p class="hint" id="pedido-saldo"></p>
+      <div class="sheet-actions">
+        <button type="button" class="btn btn-ghost" data-action="close">Cancelar</button>
+        <button class="btn btn-primary">Enviar pedido</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- ==================== COMPROVANTE (todos) ==================== -->
+
+  <dialog id="dlg-lancamento">
+    <div class="sheet">
+      <div class="sheet-head">
+        <h3>Comprovante</h3>
+        <button type="button" class="icon-btn sm" data-action="close" aria-label="Fechar">✕</button>
+      </div>
+      <div id="lancamento-body"></div>
+    </div>
+  </dialog>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
