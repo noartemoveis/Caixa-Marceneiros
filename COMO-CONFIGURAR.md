@@ -6,7 +6,8 @@ Tudo aqui é gratuito e não pede cartão. Leva uns 40 minutos, uma vez só.
 |---|---|
 | **Firebase** (Google) | Login e banco de dados |
 | **Google Apps Script** | Mandar os e-mails de aviso |
-| **GitHub** | Guardar todas as versões do código e publicar o site |
+| **GitHub** (privado) | Guardar todas as versões do código, sem ninguém ver |
+| **Netlify** | Publicar o site, atualizado sozinho a cada versão |
 
 ---
 
@@ -53,33 +54,45 @@ Quando um marceneiro pede uma retirada, **você recebe um e-mail**. Quando você
 
 > Mesmo com o endereço público, ninguém consegue usar o script para mandar e-mail. Ele confere no Firebase quem está logado: marceneiro só manda para você, e só você manda para os marceneiros.
 
-## 6. GitHub: guardar as versões e publicar o site
-
-### Primeira vez
+## 6. GitHub: guardar as versões (privado)
 
 1. Crie uma conta grátis em <https://github.com>.
 2. Instale o **GitHub Desktop**: <https://desktop.github.com>. Abra e entre com a conta do GitHub.
-3. No GitHub Desktop: **File > Add local repository**, escolha a pasta do projeto e clique em **create a repository** quando ele oferecer. Depois, **Create repository**.
-4. Clique em **Publish repository**. **Desmarque** "Keep this code private" (o site grátis do GitHub exige repositório público) e confirme.
-5. No site do GitHub, abra o repositório e vá em **Settings > Pages**. Em **Branch**, escolha `main` e a pasta `/ (root)`, depois clique em **Save**.
-6. Em 1 ou 2 minutos aparece o endereço do site, algo como `https://seu-usuario.github.io/caixa-marceneiros/`.
+3. No GitHub Desktop: **File > Add local repository** e escolha a pasta **Documentos\Caixa Marceneiros**. Ela já tem versões salvas, então ele reconhece direto.
+4. Clique em **Publish repository**, deixe **"Keep this code private" MARCADO** e confirme.
+
+Pronto: o código fica guardado no GitHub e só você vê.
+
+## 7. Netlify: publicar o site
+
+O GitHub só publica site grátis de repositório público. Por isso quem publica é o Netlify, que funciona com o repositório privado.
+
+1. Entre em <https://app.netlify.com/signup> e escolha **Sign up with GitHub** (usa a mesma conta).
+2. Clique em **Add new project > Import an existing project > GitHub** e autorize o Netlify.
+   Se pedir, libere o acesso só ao repositório **Caixa-Marceneiros**.
+3. Escolha o repositório. Nas configurações:
+   - **Branch to deploy:** `main`;
+   - **Build command:** deixe **vazio**;
+   - **Publish directory:** deixe **vazio** (ou `.`).
+4. Clique em **Deploy**. Em 1 minuto aparece o endereço, algo como `https://nome-aleatorio.netlify.app`.
+5. Para um nome melhor, vá em **Project configuration > Change project name** (ex.: `caixa-noart` vira `https://caixa-noart.netlify.app`).
 
 ### A cada alteração
 
 1. Abra o GitHub Desktop. Ele mostra o que mudou.
 2. Embaixo à esquerda, escreva um resumo (ex.: "Mudei a cor do botão") e clique em **Commit to main**.
-3. Clique em **Push origin**. Em 1 ou 2 minutos o site atualiza.
+3. Clique em **Push origin**. O Netlify percebe sozinho e o site atualiza em 1 ou 2 minutos.
 
 ### Voltar uma versão anterior
 
 - Na aba **History** do GitHub Desktop aparecem todas as versões salvas, com data e resumo.
 - Clique com o botão direito numa alteração e escolha **Revert changes in commit** para desfazê-la. Depois clique em **Push origin**.
 
-> O repositório é público: qualquer pessoa pode ver o **código**, mas **não os dados**. Saldos, nomes e extratos ficam no Firebase, protegidos pelas regras do passo 3. A `apiKey` do Firebase foi feita para ficar à mostra, isso é normal.
+> Com o Netlify também dá para voltar o **site** para uma versão anterior na hora: em **Deploys**, clique numa publicação antiga e depois em **Publish deploy**.
 
 ---
 
-## 7. Usar
+## 8. Usar
 
 1. Abra o endereço do site e entre com seu e-mail e senha de administrador.
 2. Toque em **Novo marceneiro** e informe o nome e o **e-mail** dele. Ele recebe um e-mail para **criar a própria senha** (peça para olhar no spam).
