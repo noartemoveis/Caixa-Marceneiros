@@ -8,8 +8,8 @@
    - Administrador: pode mandar para o marceneiro (aprovação/recusa).
    ========================================================= */
 
-const ADMIN_EMAIL = 'COLE_SEU_EMAIL_AQUI';
-const FIREBASE_API_KEY = 'COLE_A_API_KEY_DO_FIREBASE_AQUI';
+const ADMIN_EMAIL = 'noartemoveis@gmail.com';
+const FIREBASE_API_KEY = 'AIzaSyDwmNJIMrO-agVmbfF-QEHNS1XEKBiJh3I';
 
 function doPost(e) {
   try {

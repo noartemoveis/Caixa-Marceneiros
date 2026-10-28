@@ -6,16 +6,16 @@
 // 1) Cole aqui os dados do seu projeto Firebase
 //    (Console do Firebase > Configurações do projeto > Seus apps > App da Web)
 export const firebaseConfig = {
-  apiKey: 'COLE_AQUI',
-  authDomain: 'COLE_AQUI',
-  projectId: 'COLE_AQUI',
-  storageBucket: 'COLE_AQUI',
-  messagingSenderId: 'COLE_AQUI',
-  appId: 'COLE_AQUI',
+  apiKey: 'AIzaSyDwmNJIMrO-agVmbfF-QEHNS1XEKBiJh3I',
+  authDomain: 'caixa-noart.firebaseapp.com',
+  projectId: 'caixa-noart',
+  storageBucket: 'caixa-noart.firebasestorage.app',
+  messagingSenderId: '974637842008',
+  appId: '1:974637842008:web:39c93b957237f016e0542d',
 };
 
 // 2) E-mail do administrador (o mesmo que vai nas regras do Firestore e no script de e-mail)
-export const ADMIN_EMAIL = 'COLE_SEU_EMAIL_AQUI';
+export const ADMIN_EMAIL = 'noartemoveis@gmail.com';
 
 // 3) Endereço do script de avisos por e-mail (Google Apps Script).
 //    Enquanto estiver "COLE_AQUI", o app funciona normalmente, só não manda e-mail.
