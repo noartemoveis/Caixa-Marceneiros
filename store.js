@@ -142,21 +142,26 @@ export const addLancamento = (marceneiro, lancamento) =>
   addDoc(collection(db, 'lancamentos'), dadosLancamento(marceneiro, lancamento));
 
 // Divide em centavos para a soma das parcelas bater exatamente com o total
-export async function addParcelado(marceneiro, { desc, total, parcelas, dataInicio }) {
+export function dividirParcelas(total, parcelas, dataInicio) {
   const totalCents = Math.round(total * 100);
   const baseCents = Math.floor(totalCents / parcelas);
-  const batch = writeBatch(db);
-
-  for (let i = 0; i < parcelas; i++) {
+  return Array.from({ length: parcelas }, (_, i) => {
     const isLast = i === parcelas - 1;
     const cents = isLast ? totalCents - baseCents * (parcelas - 1) : baseCents;
+    return { numero: i + 1, data: addMonths(dataInicio, i), valor: cents / 100 };
+  });
+}
+
+export async function addParcelado(marceneiro, { desc, total, parcelas, dataInicio }) {
+  const batch = writeBatch(db);
+  dividirParcelas(total, parcelas, dataInicio).forEach(p => {
     batch.set(doc(collection(db, 'lancamentos')), dadosLancamento(marceneiro, {
       tipo: 'debito',
-      data: addMonths(dataInicio, i),
-      desc: `Parcela ${i + 1}/${parcelas} - ${desc}`,
-      valor: cents / 100,
+      data: p.data,
+      desc: `Parcela ${p.numero}/${parcelas} - ${desc}`,
+      valor: p.valor,
     }));
-  }
+  });
   await batch.commit();
 }
 

@@ -175,6 +175,39 @@ const pedidosPendentes = () => state.pedidos.filter(p => p.status === 'pendente'
 // ================= CÁLCULOS =================
 
 const sinal = l => (l.tipo === 'credito' ? 1 : -1);
+const porData = (a, b) => a.data.localeCompare(b.data);
+const CENTAVO = 0.005; // folga para arredondamento de centavos
+
+function saldoAte(lancamentos, data) {
+  return lancamentos.filter(l => l.data <= data).reduce((s, l) => s + sinal(l) * l.valor, 0);
+}
+
+// Quanto dá para retirar numa data sem o saldo ficar negativo,
+// nem naquele dia nem depois (conta as parcelas já agendadas)
+function limiteRetirada(lancamentos, data) {
+  let saldo = saldoAte(lancamentos, data);
+  let menor = saldo;
+  lancamentos.filter(l => l.data > data).sort(porData).forEach(l => {
+    saldo += sinal(l) * l.valor;
+    menor = Math.min(menor, saldo);
+  });
+  return Math.max(0, Math.round(menor * 100) / 100);
+}
+
+// Verifica se, somando os novos lançamentos, o saldo fica negativo em algum dia
+function ficariaNegativo(lancamentos, novos) {
+  const desde = novos.map(l => l.data).sort()[0];
+  return [...saldosDiarios([...lancamentos, ...novos])]
+    .some(([dia, saldo]) => dia >= desde && saldo < -CENTAVO);
+}
+
+// O marceneiro só pode pedir o que sobra depois dos pedidos que ainda aguardam resposta
+function disponivelParaPedido(marcId) {
+  const aguardando = state.pedidos
+    .filter(p => p.marcId === marcId && p.status === 'pendente')
+    .reduce((s, p) => s + p.valor, 0);
+  return Math.max(0, limiteRetirada(lancamentosDe(marcId), today()) - aguardando);
+}
 
 // Saldo disponível = só o que já aconteceu. Parcelas futuras ficam "agendadas".
 function resumoConta(lancamentos) {
@@ -212,11 +245,19 @@ function intervaloPeriodo() {
   }
 }
 
-function descricaoPeriodo(inicio, fim) {
-  if (inicio && fim) return `${formatDate(inicio)} a ${formatDate(fim)}`;
-  if (inicio) return `A partir de ${formatDate(inicio)}`;
-  if (fim) return `Até ${formatDate(fim)}`;
-  return 'Histórico completo';
+// Atalhos de período da janela do extrato em PDF
+function intervaloAtalho(atalho) {
+  const hoje = today();
+  const [ano, mes] = hoje.split('-').map(Number);
+  switch (atalho) {
+    case 'mes-passado': {
+      const inicio = toIso(new Date(ano, mes - 2, 1));
+      return [inicio, endOfMonth(inicio)];
+    }
+    case '30d': return [addDays(hoje, -30), hoje];
+    case 'ano': return [`${ano}-01-01`, hoje];
+    default: return [hoje.slice(0, 8) + '01', endOfMonth(hoje)];
+  }
 }
 
 const valorVisivel = v => (state.saldoOculto ? 'R$ ••••' : formatMoney(v));
@@ -279,7 +320,10 @@ function viewLogin() {
 function pedidoHtml(p, { mostrarNome, mostrarBotoes }) {
   const m = marceneiroDe(p.marcId);
   const [rotulo, classe] = STATUS_PEDIDO[p.status];
-  const botoes = mostrarBotoes && p.status === 'pendente' ? `
+  const limite = mostrarBotoes && p.status === 'pendente' ? limiteRetirada(lancamentosDe(p.marcId), today()) : Infinity;
+  const aviso = p.valor > limite + CENTAVO
+    ? `<p class="pedido-aviso">Saldo insuficiente: disponível ${formatMoney(limite)}</p>` : '';
+  const botoes = mostrarBotoes && p.status === 'pendente' ? `${aviso}
     <div class="pedido-acoes">
       <button class="btn btn-ghost btn-sm" data-action="recusar-pedido" data-id="${p.id}">Recusar</button>
       <button class="btn btn-green btn-sm" data-action="aprovar-pedido" data-id="${p.id}">Aprovar</button>
@@ -413,7 +457,7 @@ function viewConta() {
     .sort(porMaisRecente)
     .slice(0, 5);
   const blocoPedidos = pedidos.length ? `
-    <section class="no-print">
+    <section>
       <div class="section-head"><h2>${isAdmin() ? 'Pedidos aguardando' : 'Meus pedidos'}</h2></div>
       <div class="pedido-list">${pedidos.map(p => pedidoHtml(p, { mostrarNome: false, mostrarBotoes: isAdmin() })).join('')}</div>
     </section>` : '';
@@ -431,11 +475,6 @@ function viewConta() {
   return `
     <div class="conta">
       ${header}
-
-      <div class="print-header">
-        <h1>Extrato — ${nome}</h1>
-        <p>${descricaoPeriodo(inicio, fim)} · Emitido em ${formatDate(today())}</p>
-      </div>
 
       <section class="balance-card">
         <div class="balance-top"><span>Saldo disponível</span>${eyeButton()}</div>
@@ -600,11 +639,105 @@ function updateParceladoPreview() {
     : '';
 }
 
+// ================= EXTRATO EM PDF =================
+// Monta uma página própria para impressão, só com as movimentações do período
+
+function extratoParaImpressao(m, inicio, fim) {
+  const todos = lancamentosDe(m.id);
+  const saldoAnterior = saldoAte(todos, addDays(inicio, -1));
+  const doPeriodo = todos.filter(l => l.data >= inicio && l.data <= fim).sort(porData);
+  const entradas = doPeriodo.filter(l => l.tipo === 'credito').reduce((s, l) => s + l.valor, 0);
+  const saidas = doPeriodo.filter(l => l.tipo === 'debito').reduce((s, l) => s + l.valor, 0);
+  const hoje = today();
+
+  let saldo = saldoAnterior;
+  const linhas = doPeriodo.map(l => {
+    saldo += sinal(l) * l.valor;
+    const credito = l.tipo === 'credito';
+    const detalhes = [l.cliente && `Cliente: ${l.cliente}`, l.data > hoje && 'Agendado'].filter(Boolean);
+    return `
+      <tr>
+        <td>${formatDate(l.data)}</td>
+        <td>${escapeHtml(l.desc)}${detalhes.map(d => `<small>${escapeHtml(d)}</small>`).join('')}</td>
+        <td class="num pos">${credito ? formatMoney(l.valor) : ''}</td>
+        <td class="num neg">${credito ? '' : formatMoney(l.valor)}</td>
+        <td class="num">${formatMoney(saldo)}</td>
+      </tr>`;
+  }).join('');
+
+  const emitidoEm = new Date().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+
+  return `
+    <header class="pdf-topo">
+      <img src="logo.png" alt="Nô Art Móveis">
+      <div>
+        <h1>Extrato de conta</h1>
+        <p>Caixa dos Marceneiros</p>
+      </div>
+    </header>
+
+    <section class="pdf-dados">
+      <div><span>Marceneiro</span><strong>${escapeHtml(m.nome)}</strong></div>
+      <div><span>Período</span><strong>${formatDate(inicio)} a ${formatDate(fim)}</strong></div>
+      <div><span>E-mail</span><strong>${escapeHtml(m.email)}</strong></div>
+      <div><span>Emitido em</span><strong>${emitidoEm}</strong></div>
+    </section>
+
+    <section class="pdf-resumo">
+      <div><span>Saldo anterior</span><strong>${formatMoney(saldoAnterior)}</strong></div>
+      <div><span>Entradas</span><strong class="pos">+ ${formatMoney(entradas)}</strong></div>
+      <div><span>Saídas</span><strong class="neg">− ${formatMoney(saidas)}</strong></div>
+      <div><span>Saldo final</span><strong>${formatMoney(saldo)}</strong></div>
+    </section>
+
+    <table class="pdf-tabela">
+      <thead>
+        <tr><th>Data</th><th>Descrição</th><th class="num">Entrada</th><th class="num">Saída</th><th class="num">Saldo</th></tr>
+      </thead>
+      <tbody>
+        <tr class="pdf-saldo-anterior">
+          <td>${formatDate(addDays(inicio, -1))}</td><td>Saldo anterior</td><td></td><td></td>
+          <td class="num">${formatMoney(saldoAnterior)}</td>
+        </tr>
+        ${linhas || '<tr><td colspan="5" class="pdf-vazio">Nenhuma movimentação no período.</td></tr>'}
+      </tbody>
+      <tfoot>
+        <tr>
+          <td colspan="2">Totais do período</td>
+          <td class="num pos">${formatMoney(entradas)}</td>
+          <td class="num neg">${formatMoney(saidas)}</td>
+          <td class="num">${formatMoney(saldo)}</td>
+        </tr>
+      </tfoot>
+    </table>
+
+    <p class="pdf-rodape">Nô Art Móveis · Documento gerado pelo Caixa dos Marceneiros</p>`;
+}
+
+async function imprimirExtrato(m, inicio, fim) {
+  const area = $('#print-area');
+  area.innerHTML = extratoParaImpressao(m, inicio, fim);
+  await area.querySelector('img').decode().catch(() => {}); // espera o logo carregar
+
+  // O título vira o nome do arquivo ao salvar em PDF
+  const tituloOriginal = document.title;
+  document.title = `Extrato - ${m.nome} - ${inicio} a ${fim}`;
+  window.addEventListener('afterprint', () => { document.title = tituloOriginal; }, { once: true });
+  window.print();
+}
+
 // ================= PEDIDOS (admin responde) =================
 
 async function responderPedido(id, aprovar) {
   const p = state.pedidos.find(x => x.id === id);
   const m = marceneiroDe(p.marcId);
+  if (aprovar) {
+    const limite = limiteRetirada(lancamentosDe(m.id), today());
+    if (p.valor > limite + CENTAVO) {
+      fail(`Saldo insuficiente para aprovar. Disponível: ${formatMoney(limite)}.`);
+      return;
+    }
+  }
   const pergunta = aprovar
     ? `Aprovar ${formatMoney(p.valor)} para ${m.nome}? A retirada entra no extrato com a data de hoje.`
     : `Recusar o pedido de ${formatMoney(p.valor)} de ${m.nome}?`;
@@ -643,7 +776,16 @@ const actions = {
     state.periodo = el.dataset.periodo;
     render();
   },
-  'imprimir': () => window.print(),
+  'imprimir': () => {
+    const [inicio, fim] = intervaloAtalho('mes');
+    openDialog('dlg-extrato', { inicio, fim });
+  },
+  'extrato-atalho': el => {
+    const [inicio, fim] = intervaloAtalho(el.dataset.atalho);
+    const form = el.closest('form');
+    form.elements.inicio.value = inicio;
+    form.elements.fim.value = fim;
+  },
 
   'ver-senha': el => {
     const input = el.parentElement.querySelector('input');
@@ -683,8 +825,9 @@ const actions = {
   'nova-retirada': () => openDialog('dlg-retirada'),
   'novo-parcelado': () => openDialog('dlg-parcelado'),
   'novo-pedido': () => {
-    const { saldo } = resumoConta(lancamentosDe(state.contaId));
-    $('#pedido-saldo').textContent = `Seu saldo disponível: ${formatMoney(saldo)}`;
+    const disponivel = disponivelParaPedido(state.contaId);
+    if (disponivel < 0.01) return fail('Você não tem saldo disponível para pedir retirada.');
+    $('#pedido-saldo').textContent = `Disponível para pedir: ${formatMoney(disponivel)}`;
     openDialog('dlg-pedido');
   },
   'ver-lancamento': el => openLancamento(el.dataset.id),
@@ -719,6 +862,14 @@ const actions = {
 // Cada função recebe os campos do formulário. Retornar false mantém a janela aberta.
 
 const forms = {
+  extrato(f) {
+    const inicio = f.inicio.value;
+    const fim = f.fim.value;
+    if (inicio > fim) return fail('A data inicial precisa ser antes da data final.');
+    // Espera a janela fechar para ela não sair na impressão
+    setTimeout(() => imprimirExtrato(contaAtual(), inicio, fim), 150);
+  },
+
   async login(f) {
     await Store.login(f.email.value, f.senha.value);
   },
@@ -749,6 +900,10 @@ const forms = {
   async retirada(f) {
     const valor = parseMoney(f.valor.value);
     if (!(valor > 0)) return fail('Informe um valor maior que zero.');
+    const limite = limiteRetirada(lancamentosDe(state.contaId), f.data.value);
+    if (valor > limite + CENTAVO) {
+      return fail(`Saldo insuficiente. Disponível para retirada nessa data: ${formatMoney(limite)}.`);
+    }
     await Store.addLancamento(contaAtual(), { tipo: 'debito', data: f.data.value, desc: f.desc.value.trim(), valor });
     toast('Retirada registrada!');
   },
@@ -757,6 +912,10 @@ const forms = {
     const total = parseMoney(f.total.value);
     const parcelas = parseInt(f.parcelas.value, 10);
     if (!(total > 0)) return fail('Informe o valor total.');
+    const novas = Store.dividirParcelas(total, parcelas, f.data.value).map(p => ({ ...p, tipo: 'debito' }));
+    if (ficariaNegativo(lancamentosDe(state.contaId), novas)) {
+      return fail('Saldo insuficiente: com essas parcelas o saldo ficaria negativo.');
+    }
     await Store.addParcelado(contaAtual(), { desc: f.desc.value.trim(), total, parcelas, dataInicio: f.data.value });
     toast(`${parcelas} parcela(s) gerada(s)!`);
   },
@@ -765,6 +924,10 @@ const forms = {
     const valor = parseMoney(f.valor.value);
     if (!(valor > 0)) return fail('Informe um valor maior que zero.');
     const m = contaAtual();
+    const disponivel = disponivelParaPedido(m.id);
+    if (valor > disponivel + CENTAVO) {
+      return fail(`Valor maior que o seu saldo disponível (${formatMoney(disponivel)}).`);
+    }
     const motivo = f.motivo.value.trim();
     await Store.criarPedido(m, { valor, motivo });
     toast('Pedido enviado! Você será avisado quando for respondido.');

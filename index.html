@@ -22,6 +22,9 @@
   <!-- As telas são desenhadas pelo app.js dentro deste elemento -->
   <main id="app"></main>
 
+  <!-- Extrato montado pelo app.js; só aparece na impressão -->
+  <div id="print-area"></div>
+
   <div id="toast-container" aria-live="polite"></div>
 
   <!-- ==================== JANELAS DO ADMINISTRADOR ==================== -->
@@ -210,6 +213,40 @@
       <div class="sheet-actions">
         <button type="button" class="btn btn-ghost" data-action="close">Cancelar</button>
         <button class="btn btn-primary">Enviar pedido</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- ==================== EXTRATO EM PDF (todos) ==================== -->
+
+  <dialog id="dlg-extrato">
+    <form class="sheet" data-form="extrato">
+      <div class="sheet-head">
+        <div>
+          <h3>Extrato em PDF</h3>
+          <p class="hint">Escolha o período. Depois é só imprimir ou salvar como PDF.</p>
+        </div>
+        <button type="button" class="icon-btn sm" data-action="close" aria-label="Fechar">✕</button>
+      </div>
+      <div class="chips chips-wrap">
+        <button type="button" class="chip" data-action="extrato-atalho" data-atalho="mes">Este mês</button>
+        <button type="button" class="chip" data-action="extrato-atalho" data-atalho="mes-passado">Mês passado</button>
+        <button type="button" class="chip" data-action="extrato-atalho" data-atalho="30d">Últimos 30 dias</button>
+        <button type="button" class="chip" data-action="extrato-atalho" data-atalho="ano">Este ano</button>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span>De</span>
+          <input type="date" name="inicio" required>
+        </label>
+        <label class="field">
+          <span>Até</span>
+          <input type="date" name="fim" required>
+        </label>
+      </div>
+      <div class="sheet-actions">
+        <button type="button" class="btn btn-ghost" data-action="close">Cancelar</button>
+        <button class="btn btn-primary">Gerar extrato</button>
       </div>
     </form>
   </dialog>

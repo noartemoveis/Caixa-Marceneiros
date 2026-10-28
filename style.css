@@ -220,6 +220,7 @@ svg { width: 20px; height: 20px; flex-shrink: 0; }
 .pedido-info strong { display: block; font-size: 14px; }
 .pedido-info small { display: block; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pedido-valor { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; white-space: nowrap; }
+.pedido-aviso { margin-top: 10px; color: var(--red); font-size: 12px; font-weight: 600; }
 .pedido-acoes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
 .badge {
   display: inline-grid; place-items: center;
@@ -362,19 +363,41 @@ dialog[open] .sheet { animation: sheetUp .25s ease-out; }
   .balance-value { font-size: 28px; }
 }
 
-/* ---------- Impressão / PDF do extrato ---------- */
-.print-header { display: none; }
+.chips-wrap { flex-wrap: wrap; margin-bottom: 0; }
+
+/* ---------- Extrato em PDF ---------- */
+/* Na tela fica escondido; na impressão só ele aparece */
+#print-area { display: none; }
 
 @media print {
-  body { background: #fff; }
-  #app { padding: 0; max-width: none; }
-  .topbar, .quick-actions, .chips, .no-print, .custom-range, .balance-top button, #toast-container { display: none !important; }
-  .print-header { display: block; margin-bottom: 16px; }
-  .print-header h1 { font-size: 20px; }
-  .print-header p { color: #555; font-size: 12px; }
-  .balance-card { background: none; color: #000; border: 1px solid #ccc; box-shadow: none; }
-  .balance-card::after { display: none; }
-  .day-group, .tx { break-inside: avoid; }
-  .tx-future { opacity: 1; }
-  @page { margin: 1.2cm; }
+  @page { size: A4; margin: 1.4cm; }
+  body { background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  #app, #toast-container, dialog { display: none !important; }
+  #print-area { display: block; color: var(--text); font-size: 11px; }
 }
+
+.pdf-topo { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 20px; }
+.pdf-topo img { height: 56px; border-radius: 8px; }
+.pdf-topo div { text-align: right; }
+.pdf-topo h1 { font-size: 20px; color: var(--accent-dark); }
+.pdf-topo p { color: var(--muted); font-size: 11px; }
+
+.pdf-dados { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; padding: 12px 0; border-top: 2px solid var(--accent); border-bottom: 1px solid var(--border); margin-bottom: 14px; }
+.pdf-dados span, .pdf-resumo span { display: block; color: var(--muted); font-size: 9px; text-transform: uppercase; letter-spacing: .4px; }
+.pdf-dados strong { font-size: 12px; }
+
+.pdf-resumo { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 18px; }
+.pdf-resumo div { padding: 8px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; }
+.pdf-resumo strong { font-size: 13px; }
+
+.pdf-tabela { width: 100%; border-collapse: collapse; }
+.pdf-tabela th { padding: 6px 8px; background: var(--accent); color: #fff; font-size: 10px; text-align: left; }
+.pdf-tabela td { padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.pdf-tabela td small { display: block; color: var(--muted); font-size: 9px; }
+.pdf-tabela tr { break-inside: avoid; }
+.pdf-tabela .num { text-align: right; white-space: nowrap; }
+.pdf-tabela thead { display: table-header-group; } /* repete o cabeçalho em cada página */
+.pdf-tabela tfoot td { font-weight: 700; background: var(--bg); border-top: 2px solid var(--accent); }
+.pdf-saldo-anterior td { color: var(--muted); font-style: italic; }
+.pdf-vazio { text-align: center; color: var(--muted); padding: 16px; }
+.pdf-rodape { margin-top: 18px; text-align: center; color: var(--muted); font-size: 9px; }
