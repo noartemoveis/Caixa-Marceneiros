@@ -158,6 +158,12 @@ svg { width: 20px; height: 20px; flex-shrink: 0; }
 .segmented { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; background: var(--bg); border-radius: 12px; }
 .segmented button { padding: 9px; border-radius: 9px; font-size: 14px; font-weight: 600; color: var(--muted); text-align: center; }
 .segmented button.active { background: var(--surface); color: var(--accent-dark); box-shadow: var(--shadow); }
+.segmented-3 { grid-template-columns: repeat(3, 1fr); }
+.filtro-tipo { margin-bottom: 12px; }
+
+/* Bloco de agendados no extrato */
+.agendados .day-head { color: var(--amber); }
+.agendados .day-list { border-style: dashed; }
 
 /* Calendário */
 .cal-topo { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
@@ -428,4 +434,8 @@ dialog[open] .sheet { animation: sheetUp .25s ease-out; }
 .pdf-tabela tfoot td { font-weight: 700; background: var(--bg); border-top: 2px solid var(--accent); }
 .pdf-saldo-anterior td { color: var(--muted); font-style: italic; }
 .pdf-vazio { text-align: center; color: var(--muted); padding: 16px; }
+.pdf-resumo-2 { grid-template-columns: repeat(2, 1fr); }
+.pdf-subtitulo { margin: 22px 0 8px; font-size: 13px; color: var(--amber); }
+.pdf-subtitulo small { font-weight: 400; color: var(--muted); }
+.pdf-agendados th { background: var(--amber); }
 .pdf-rodape { margin-top: 18px; text-align: center; color: var(--muted); font-size: 9px; }

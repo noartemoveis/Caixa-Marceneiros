@@ -9,6 +9,9 @@ import * as Store from './store.js';
 const LEMBRAR_KEY = 'caixa_ultimo_email';
 const SITE_URL = location.origin + location.pathname;
 
+// Filtro do extrato e do PDF por tipo de lançamento
+const TIPOS = [['todos', 'Ambos'], ['credito', 'Entradas'], ['debito', 'Saídas']];
+
 const STATUS_PEDIDO = {
   pendente: ['Aguardando', 'tag'],
   aprovado: ['Aprovado', 'tag tag-green'],
@@ -153,7 +156,7 @@ const state = {
   pedidos: [],
   carregados: new Set(), // nomes das coleções que já chegaram do banco
   contaId: null,
-  filtro: { inicio: null, fim: null }, // período do extrato na tela (null = todo o histórico)
+  filtro: { inicio: null, fim: null, tipo: 'todos' }, // extrato na tela (datas null = todo o histórico)
   saldoOculto: false,
   // Tela de pedidos: aba aberta, de qual conta (null = todas) e para onde volta
   pedidosAba: 'pendentes',
@@ -419,15 +422,23 @@ function viewConta() {
 
   const todos = lancamentosDe(m.id);
   const { saldo, aLiberar, aDescontar } = resumoConta(todos);
-  const { inicio, fim } = state.filtro;
+  const { inicio, fim, tipo } = state.filtro;
   const agendados = [
     aLiberar && `A liberar: ${valorVisivel(aLiberar)}`,
     aDescontar && `Parcelas futuras: ${valorVisivel(aDescontar)}`,
   ].filter(Boolean).join(' · ') || 'Nenhum lançamento agendado';
-  const doPeriodo = todos.filter(l => (!inicio || l.data >= inicio) && (!fim || l.data <= fim));
+
+  // Agendados (data futura) aparecem sempre, à parte, e não entram nos totais
+  const hoje = today();
+  const doTipo = l => tipo === 'todos' || l.tipo === tipo;
+  const futuros = todos.filter(l => l.data > hoje && doTipo(l)).sort(porData);
+  const doPeriodo = todos.filter(l => l.data <= hoje && (!inicio || l.data >= inicio) && (!fim || l.data <= fim));
   const entradas = doPeriodo.filter(l => l.tipo === 'credito').reduce((s, l) => s + l.valor, 0);
   const saidas = doPeriodo.filter(l => l.tipo === 'debito').reduce((s, l) => s + l.valor, 0);
   const nome = escapeHtml(m.nome);
+
+  const filtroTipo = TIPOS.map(([id, rotulo]) =>
+    `<button type="button" class="${tipo === id ? 'active' : ''}" data-action="filtro-tipo" data-tipo="${id}">${rotulo}</button>`).join('');
 
   const header = isAdmin()
     ? `<header class="topbar">
@@ -492,11 +503,13 @@ function viewConta() {
           <h2>Extrato</h2>
           <button class="period-btn" data-action="abrir-periodo">${icon('calendar')} ${rotuloPeriodo(state.filtro)}</button>
         </div>
+        <div class="segmented segmented-3 filtro-tipo">${filtroTipo}</div>
         <div class="period-summary">
           <div><small>Entradas</small><strong class="pos">${formatMoney(entradas)}</strong></div>
           <div><small>Saídas</small><strong class="neg">${formatMoney(saidas)}</strong></div>
         </div>
-        ${extratoHtml(todos, doPeriodo)}
+        ${agendadosHtml(futuros)}
+        ${extratoHtml(todos, doPeriodo.filter(doTipo), tipo)}
       </section>
     </div>`;
 }
@@ -531,10 +544,19 @@ function viewPedidos() {
     </div>`;
 }
 
-function extratoHtml(todos, lancamentos) {
-  if (!lancamentos.length) return '<p class="empty">Nenhum lançamento neste período.</p>';
+function agendadosHtml(futuros) {
+  if (!futuros.length) return '';
+  return `
+    <div class="day-group agendados">
+      <div class="day-head"><span>Agendados</span><span>Ainda não contam no saldo</span></div>
+      <div class="day-list">${futuros.map(lancamentoHtml).join('')}</div>
+    </div>`;
+}
 
-  const hoje = today();
+function extratoHtml(todos, lancamentos, tipo) {
+  const vazio = { todos: 'Nenhum lançamento', credito: 'Nenhuma entrada', debito: 'Nenhuma saída' }[tipo];
+  if (!lancamentos.length) return `<p class="empty">${vazio} neste período.</p>`;
+
   const saldoDoDia = saldosDiarios(todos);
   const porDia = new Map();
   [...lancamentos]
@@ -548,7 +570,7 @@ function extratoHtml(todos, lancamentos) {
     <div class="day-group">
       <div class="day-head">
         <span>${formatDayHeader(dia)}</span>
-        ${dia > hoje ? '<span class="tag">Agendado</span>' : `<span>Saldo do dia ${valorVisivel(saldoDoDia.get(dia))}</span>`}
+        <span>Saldo do dia ${valorVisivel(saldoDoDia.get(dia))}</span>
       </div>
       <div class="day-list">${itens.map(lancamentoHtml).join('')}</div>
     </div>`).join('');
@@ -557,7 +579,7 @@ function extratoHtml(todos, lancamentos) {
 function lancamentoHtml(l) {
   const credito = l.tipo === 'credito';
   let detalhe = credito ? (l.cliente ? `Cliente: ${l.cliente}` : 'Serviço') : 'Retirada';
-  if (credito && l.data > today()) detalhe = `Libera em ${formatDate(l.data)}`;
+  if (l.data > today()) detalhe = `${credito ? 'Libera' : 'Desconta'} em ${formatDate(l.data)}`;
   return `
     <button class="tx${l.data > today() ? ' tx-future' : ''}" data-action="ver-lancamento" data-id="${l.id}">
       <span class="tx-icon ${credito ? 'in' : 'out'}">${icon(credito ? 'arrowUp' : 'arrowDown')}</span>
@@ -592,7 +614,7 @@ function go(screen) {
 
 function openConta(id) {
   state.contaId = id;
-  state.filtro = esteMes();
+  state.filtro = { ...esteMes(), tipo: 'todos' };
   go('conta');
 }
 
@@ -603,7 +625,7 @@ let pararEscutas = [];
 function aoMudarLogin(user) {
   pararEscutas.forEach(parar => parar());
   pararEscutas = [];
-  Object.assign(state, { user, marceneiros: [], lancamentos: [], pedidos: [], saldoOculto: false, filtro: esteMes() });
+  Object.assign(state, { user, marceneiros: [], lancamentos: [], pedidos: [], saldoOculto: false, filtro: { ...esteMes(), tipo: 'todos' } });
   state.carregados.clear();
 
   if (!user) {
@@ -714,13 +736,14 @@ function updateParceladoPreview() {
 // Usado para filtrar o extrato na tela (modo 'filtro') e para gerar o PDF (modo 'pdf').
 // Toque no primeiro dia e depois no último para marcar o período.
 
-let cal = { modo: 'filtro', mes: '', inicio: null, fim: null };
+let cal = { modo: 'filtro', mes: '', inicio: null, fim: null, tipo: 'todos' };
 
 function abrirPeriodo(modo) {
-  const { inicio, fim } = state.filtro;
-  cal = { modo, inicio, fim, mes: (inicio ?? today()).slice(0, 7) };
+  const { inicio, fim, tipo } = state.filtro;
+  cal = { modo, inicio, fim, tipo, mes: (inicio ?? today()).slice(0, 7) };
   $('#periodo-titulo').textContent = modo === 'pdf' ? 'Extrato em PDF' : 'Período do extrato';
   $('#periodo-ok').textContent = modo === 'pdf' ? 'Gerar PDF' : 'Aplicar';
+  $('#periodo-tipo-campo').hidden = modo !== 'pdf'; // na tela o filtro de tipo já fica visível no extrato
   renderCalendario();
   $('#dlg-periodo').showModal();
 }
@@ -762,6 +785,8 @@ function renderCalendario() {
       : inicio === mesAtual.inicio && fim === mesAtual.fim;
     b.classList.toggle('active', ativo);
   });
+  $('#periodo-tipo').innerHTML = TIPOS.map(([id, rotulo]) =>
+    `<button type="button" class="${cal.tipo === id ? 'active' : ''}" data-action="cal-tipo" data-tipo="${id}">${rotulo}</button>`).join('');
 }
 
 function mudarMesCalendario(passo) {
@@ -788,9 +813,9 @@ function confirmarPeriodo() {
   $('#dlg-periodo').close();
   if (cal.modo === 'pdf') {
     // Espera a janela fechar para ela não sair na impressão
-    setTimeout(() => imprimirExtrato(contaAtual(), inicio, fim), 150);
+    setTimeout(() => imprimirExtrato(contaAtual(), inicio, fim, cal.tipo), 150);
   } else {
-    state.filtro = { inicio, fim };
+    state.filtro = { ...state.filtro, inicio, fim };
     render();
   }
 }
@@ -798,28 +823,82 @@ function confirmarPeriodo() {
 // ================= EXTRATO EM PDF =================
 // Monta uma página própria para impressão, só com as movimentações do período
 
-function extratoParaImpressao(m, inicio, fim) {
+const TITULO_PDF = { todos: 'Extrato de conta', credito: 'Relatório de entradas', debito: 'Relatório de saídas' };
+
+const descricaoPdf = (l, extra = []) => {
+  const detalhes = [l.cliente && `Cliente: ${l.cliente}`, ...extra].filter(Boolean);
+  return escapeHtml(l.desc) + detalhes.map(d => `<small>${escapeHtml(d)}</small>`).join('');
+};
+
+// tipo: 'todos' = extrato completo com saldo; 'credito'/'debito' = relatório só daquele tipo
+function extratoParaImpressao(m, inicio, fim, tipo) {
+  const hoje = today();
   const todos = lancamentosDe(m.id);
-  const saldoAnterior = saldoAte(todos, addDays(inicio, -1));
-  const doPeriodo = todos.filter(l => l.data >= inicio && l.data <= fim).sort(porData);
+  const realizados = todos.filter(l => l.data <= hoje);
+  const doTipo = l => tipo === 'todos' || l.tipo === tipo;
+  const doPeriodo = realizados.filter(l => l.data >= inicio && l.data <= fim).sort(porData);
   const entradas = doPeriodo.filter(l => l.tipo === 'credito').reduce((s, l) => s + l.valor, 0);
   const saidas = doPeriodo.filter(l => l.tipo === 'debito').reduce((s, l) => s + l.valor, 0);
-  const hoje = today();
+  // Agendados só fazem sentido se o período chega até hoje
+  const agendados = fim >= hoje ? todos.filter(l => l.data > hoje && doTipo(l)).sort(porData) : [];
+  const completo = tipo === 'todos';
+  const colunas = completo ? 5 : 3;
 
+  const saldoAnterior = saldoAte(realizados, addDays(inicio, -1));
   let saldo = saldoAnterior;
-  const linhas = doPeriodo.map(l => {
+  const linhas = doPeriodo.filter(doTipo).map(l => {
     saldo += sinal(l) * l.valor;
     const credito = l.tipo === 'credito';
-    const detalhes = [l.cliente && `Cliente: ${l.cliente}`, l.data > hoje && 'Agendado'].filter(Boolean);
-    return `
-      <tr>
-        <td>${formatDate(l.data)}</td>
-        <td>${escapeHtml(l.desc)}${detalhes.map(d => `<small>${escapeHtml(d)}</small>`).join('')}</td>
-        <td class="num pos">${credito ? formatMoney(l.valor) : ''}</td>
-        <td class="num neg">${credito ? '' : formatMoney(l.valor)}</td>
-        <td class="num">${formatMoney(saldo)}</td>
-      </tr>`;
+    const valores = completo
+      ? `<td class="num pos">${credito ? formatMoney(l.valor) : ''}</td>
+         <td class="num neg">${credito ? '' : formatMoney(l.valor)}</td>
+         <td class="num">${formatMoney(saldo)}</td>`
+      : `<td class="num ${credito ? 'pos' : 'neg'}">${formatMoney(l.valor)}</td>`;
+    return `<tr><td>${formatDate(l.data)}</td><td>${descricaoPdf(l)}</td>${valores}</tr>`;
   }).join('');
+
+  const totalDoTipo = tipo === 'credito' ? entradas : saidas;
+  const resumo = completo
+    ? `<div><span>Saldo anterior</span><strong>${formatMoney(saldoAnterior)}</strong></div>
+       <div><span>Entradas</span><strong class="pos">+ ${formatMoney(entradas)}</strong></div>
+       <div><span>Saídas</span><strong class="neg">− ${formatMoney(saidas)}</strong></div>
+       <div><span>Saldo final</span><strong>${formatMoney(saldo)}</strong></div>`
+    : `<div><span>Total de ${tipo === 'credito' ? 'entradas' : 'saídas'}</span>
+         <strong class="${tipo === 'credito' ? 'pos' : 'neg'}">${formatMoney(totalDoTipo)}</strong></div>
+       <div><span>Lançamentos</span><strong>${doPeriodo.filter(doTipo).length}</strong></div>`;
+
+  const cabecalho = completo
+    ? '<th>Data</th><th>Descrição</th><th class="num">Entrada</th><th class="num">Saída</th><th class="num">Saldo</th>'
+    : `<th>Data</th><th>Descrição</th><th class="num">${tipo === 'credito' ? 'Entrada' : 'Saída'}</th>`;
+
+  const saldoAnteriorLinha = completo ? `
+    <tr class="pdf-saldo-anterior">
+      <td>${formatDate(addDays(inicio, -1))}</td><td>Saldo anterior</td><td></td><td></td>
+      <td class="num">${formatMoney(saldoAnterior)}</td>
+    </tr>` : '';
+
+  const rodapeTabela = completo
+    ? `<td colspan="2">Totais do período</td>
+       <td class="num pos">${formatMoney(entradas)}</td>
+       <td class="num neg">${formatMoney(saidas)}</td>
+       <td class="num">${formatMoney(saldo)}</td>`
+    : `<td colspan="2">Total do período</td><td class="num">${formatMoney(totalDoTipo)}</td>`;
+
+  const tabelaAgendados = agendados.length ? `
+    <h2 class="pdf-subtitulo">Agendados <small>(ainda não contam no saldo)</small></h2>
+    <table class="pdf-tabela pdf-agendados">
+      <thead><tr><th>Data</th><th>Descrição</th><th class="num">Valor</th></tr></thead>
+      <tbody>
+        ${agendados.map(l => {
+          const credito = l.tipo === 'credito';
+          return `<tr>
+            <td>${formatDate(l.data)}</td>
+            <td>${descricaoPdf(l, [credito ? 'Libera nesta data' : 'Desconta nesta data'])}</td>
+            <td class="num ${credito ? 'pos' : 'neg'}">${credito ? '+' : '−'} ${formatMoney(l.valor)}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>` : '';
 
   const emitidoEm = new Date().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
 
@@ -827,7 +906,7 @@ function extratoParaImpressao(m, inicio, fim) {
     <header class="pdf-topo">
       <img src="logo.png" alt="Nô Art Móveis">
       <div>
-        <h1>Extrato de conta</h1>
+        <h1>${TITULO_PDF[tipo]}</h1>
         <p>Caixa dos Marceneiros</p>
       </div>
     </header>
@@ -839,50 +918,35 @@ function extratoParaImpressao(m, inicio, fim) {
       <div><span>Emitido em</span><strong>${emitidoEm}</strong></div>
     </section>
 
-    <section class="pdf-resumo">
-      <div><span>Saldo anterior</span><strong>${formatMoney(saldoAnterior)}</strong></div>
-      <div><span>Entradas</span><strong class="pos">+ ${formatMoney(entradas)}</strong></div>
-      <div><span>Saídas</span><strong class="neg">− ${formatMoney(saidas)}</strong></div>
-      <div><span>Saldo final</span><strong>${formatMoney(saldo)}</strong></div>
-    </section>
+    <section class="pdf-resumo${completo ? '' : ' pdf-resumo-2'}">${resumo}</section>
 
     <table class="pdf-tabela">
-      <thead>
-        <tr><th>Data</th><th>Descrição</th><th class="num">Entrada</th><th class="num">Saída</th><th class="num">Saldo</th></tr>
-      </thead>
+      <thead><tr>${cabecalho}</tr></thead>
       <tbody>
-        <tr class="pdf-saldo-anterior">
-          <td>${formatDate(addDays(inicio, -1))}</td><td>Saldo anterior</td><td></td><td></td>
-          <td class="num">${formatMoney(saldoAnterior)}</td>
-        </tr>
-        ${linhas || '<tr><td colspan="5" class="pdf-vazio">Nenhuma movimentação no período.</td></tr>'}
+        ${saldoAnteriorLinha}
+        ${linhas || `<tr><td colspan="${colunas}" class="pdf-vazio">Nenhuma movimentação no período.</td></tr>`}
       </tbody>
-      <tfoot>
-        <tr>
-          <td colspan="2">Totais do período</td>
-          <td class="num pos">${formatMoney(entradas)}</td>
-          <td class="num neg">${formatMoney(saidas)}</td>
-          <td class="num">${formatMoney(saldo)}</td>
-        </tr>
-      </tfoot>
+      <tfoot><tr>${rodapeTabela}</tr></tfoot>
     </table>
+
+    ${tabelaAgendados}
 
     <p class="pdf-rodape">Nô Art Móveis · Documento gerado pelo Caixa dos Marceneiros</p>`;
 }
 
-async function imprimirExtrato(m, inicio, fim) {
-  // "Todo o histórico": do primeiro lançamento até hoje (ou até a última data agendada)
+async function imprimirExtrato(m, inicio, fim, tipo) {
+  // "Todo o histórico": do primeiro lançamento até hoje (os agendados saem em tabela à parte)
   const datas = lancamentosDe(m.id).map(l => l.data).sort();
-  inicio ??= datas[0] ?? today();
-  fim ??= [today(), datas.at(-1) ?? ''].sort().at(-1);
+  inicio ??= [datas[0] ?? today(), today()].sort()[0];
+  fim ??= today();
 
   const area = $('#print-area');
-  area.innerHTML = extratoParaImpressao(m, inicio, fim);
+  area.innerHTML = extratoParaImpressao(m, inicio, fim, tipo);
   await area.querySelector('img').decode().catch(() => {}); // espera o logo carregar
 
   // O título vira o nome do arquivo ao salvar em PDF
   const tituloOriginal = document.title;
-  document.title = `Extrato - ${m.nome} - ${inicio} a ${fim}`;
+  document.title = `${TITULO_PDF[tipo]} - ${m.nome} - ${inicio} a ${fim}`;
   window.addEventListener('afterprint', () => { document.title = tituloOriginal; }, { once: true });
   window.print();
 }
@@ -965,6 +1029,14 @@ const actions = {
   },
   'cal-mes': el => mudarMesCalendario(Number(el.dataset.passo)),
   'cal-dia': el => escolherDia(el.dataset.dia),
+  'cal-tipo': el => {
+    cal.tipo = el.dataset.tipo;
+    renderCalendario();
+  },
+  'filtro-tipo': el => {
+    state.filtro = { ...state.filtro, tipo: el.dataset.tipo };
+    render();
+  },
   'periodo-confirmar': confirmarPeriodo,
 
   'ver-senha': el => {
