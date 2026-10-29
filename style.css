@@ -161,6 +161,28 @@ svg { width: 20px; height: 20px; flex-shrink: 0; }
 .segmented-3 { grid-template-columns: repeat(3, 1fr); }
 .filtro-tipo { margin-bottom: 12px; }
 
+/* Filtro de cliente: caixa de seleção no visual do app */
+.filtro-cliente {
+  position: relative;
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 12px; padding: 0 12px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.filtro-cliente.ativo { border-color: var(--accent); color: var(--accent); }
+.filtro-cliente svg { width: 18px; height: 18px; pointer-events: none; }
+.filtro-cliente select {
+  flex: 1; min-width: 0;
+  padding: 11px 0;
+  border: 0; background: transparent;
+  font: inherit; font-size: 14px; font-weight: 600; color: var(--text);
+  appearance: none; -webkit-appearance: none;
+  cursor: pointer;
+}
+.filtro-cliente select:focus { outline: none; }
+.filtro-cliente:focus-within { border-color: var(--accent); }
+
 /* Bloco de agendados no extrato */
 .agendados .day-head { color: var(--amber); }
 .agendados-toggle { width: 100%; padding-top: 4px; padding-bottom: 4px; }
@@ -204,6 +226,8 @@ svg { width: 20px; height: 20px; flex-shrink: 0; }
 .period-summary strong { display: block; font-size: clamp(13px, 4vw, 16px); white-space: nowrap; }
 /* Valores agendados: ainda não entram no total acima (quebra só entre palavras) */
 .period-summary .futuro { display: block; margin-top: 4px; color: var(--amber); font-size: 12px; font-weight: 600; }
+.period-summary .futuro.neutro { color: var(--muted); }
+.period-summary-1 { grid-template-columns: 1fr; }
 
 /* ---------- Extrato ---------- */
 .day-group { margin-bottom: 18px; }
