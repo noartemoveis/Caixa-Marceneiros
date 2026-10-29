@@ -18,7 +18,8 @@ import {
   signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, sendPasswordResetEmail,
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import {
-  getFirestore, collection, doc, query, where, onSnapshot, getDocs,
+  getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
+  collection, doc, query, where, onSnapshot, getDocs,
   addDoc, updateDoc, deleteDoc, writeBatch, runTransaction, serverTimestamp, arrayUnion,
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 import { firebaseConfig, ADMIN_EMAIL, EMAIL_WEBHOOK_URL } from './firebase-config.js';
@@ -30,7 +31,20 @@ export const emailConfigurado = !naoPreenchido(EMAIL_WEBHOOK_URL);
 
 const app = configurado ? initializeApp(firebaseConfig) : null;
 const auth = app && getAuth(app);
-const db = app && getFirestore(app);
+const db = app && abrirBanco(app);
+
+// Guarda uma cópia dos dados no aparelho: o app abre na hora e mostra o último
+// saldo mesmo sem internet. Se o navegador não permitir, funciona só online.
+function abrirBanco(firebaseApp) {
+  try {
+    return initializeFirestore(firebaseApp, {
+      localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+    });
+  } catch (err) {
+    console.warn('Sem cópia local dos dados', err);
+    return getFirestore(firebaseApp);
+  }
+}
 if (auth) auth.languageCode = 'pt-BR'; // e-mails do Firebase (redefinir senha) em português
 
 // ---------- Auxiliares ----------

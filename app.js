@@ -122,6 +122,12 @@ function fail(message) {
   return false;
 }
 
+// Sem internet dá para ver tudo, mas nada é lançado (para não ficar nada pela metade)
+function exigeInternet() {
+  if (navigator.onLine) return true;
+  return fail('Sem internet. Conecte-se para continuar.');
+}
+
 // O aviso por e-mail não pode travar o que já foi salvo
 async function avisar(dados) {
   try {
@@ -156,6 +162,8 @@ const ICONS = {
   search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>',
   check: '<path d="M20 6 9 17l-5-5"/>',
   download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>',
+  chart: '<path d="M3 3v18h18"/><path d="M7 16v-5M12 16V8M17 16v-9"/>',
+  wifiOff: '<path d="M1 1l22 22M16.72 11.06A10.94 10.94 0 0 1 19 12.55M5 12.55a10.94 10.94 0 0 1 5.17-2.39M10.71 5.05A16 16 0 0 1 22.58 9M1.42 9a15.91 15.91 0 0 1 4.7-2.88M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/>',
 };
 
 const icon = name =>
@@ -178,6 +186,8 @@ const state = {
   pedidosAba: 'pendentes',
   pedidosDe: null,
   pedidosVolta: 'admin',
+  painel: esteMes(),       // período do painel geral do administrador
+  busca: '',               // busca no extrato da conta aberta
 };
 
 const COLECOES = ['marceneiros', 'lancamentos', 'pedidos'];
@@ -272,6 +282,9 @@ const filtroInicial = () => ({ ...esteMes(), tipo: 'todos', cliente: '' });
 
 // Clientes: "vanessa" e "Vanessa " contam como o mesmo
 const chaveCliente = nome => (nome || '').trim().toLocaleLowerCase('pt-BR');
+
+// Para buscas: minúsculo e sem acento ("joao" acha "João")
+const semAcento = texto => chaveCliente(texto).normalize('NFD').replace(/\p{M}/gu, '');
 
 // Para mostrar o nome, prefere a grafia "Vanessa" a "vanessa" ou "VANESSA"
 const capricho = nome => (nome[0] === nome[0].toUpperCase() ? 1 : 0) + (nome !== nome.toUpperCase() ? 1 : 0);
@@ -447,6 +460,12 @@ function viewAdmin() {
       <small>${contas.length} conta(s)</small>
     </section>
 
+    <button class="painel-atalho" data-action="abrir-painel">
+      <span class="qa-icon tone-accent">${icon('chart')}</span>
+      <span><strong>Painel geral</strong><small>Totais do período, por marceneiro e por cliente</small></span>
+      ${icon('chevronRight')}
+    </button>
+
     ${blocoPedidos}
 
     <div class="section-head">
@@ -481,16 +500,8 @@ function viewConta() {
   if (!m || !carregado()) return viewContaIndisponivel();
 
   const todos = lancamentosDe(m.id);
-  const { saldo, aLiberar, aDescontar } = resumoConta(todos);
-  const { inicio, fim, tipo, cliente } = state.filtro;
-
-  // Agendados (data futura) aparecem sempre, à parte, e não entram nos totais
-  const hoje = today();
-  const filtrar = passaNoFiltro(state.filtro);
-  const futuros = todos.filter(l => l.data > hoje && filtrar(l)).sort(porDataEHora);
-  const doPeriodo = todos.filter(l => l.data <= hoje && (!inicio || l.data >= inicio) && (!fim || l.data <= fim));
-  const entradas = doPeriodo.filter(l => l.tipo === 'credito').reduce((s, l) => s + l.valor, 0);
-  const saidas = doPeriodo.filter(l => l.tipo === 'debito').reduce((s, l) => s + l.valor, 0);
+  const { saldo } = resumoConta(todos);
+  const { tipo, cliente } = state.filtro;
   const nome = escapeHtml(m.nome);
 
   const filtroTipo = cliente ? '' : `
@@ -500,32 +511,18 @@ function viewConta() {
     </div>`;
 
   const filtroCliente = clientesDe(todos).length ? `
-    <button class="filtro-cliente${cliente ? ' ativo' : ''}" data-action="abrir-clientes">
+    <button class="filtro-cliente${cliente ? ' ativo' : ''}" data-action="abrir-clientes" title="Filtrar por cliente">
       ${icon('user')}
-      <span class="truncate">${cliente ? escapeHtml(nomeDoCliente(todos, cliente)) : 'Todos os clientes'}</span>
+      <span class="truncate">${cliente ? escapeHtml(nomeDoCliente(todos, cliente)) : 'Clientes'}</span>
       ${icon('chevronDown')}
     </button>` : '';
 
-  // Com cliente escolhido, o resumo vira o total de serviços dele no período (sem os estornados)
-  const servicosCliente = cliente ? doPeriodo.filter(l => filtrar(l) && !l.estornado) : [];
-  const resumo = cliente ? `
-    <div class="period-summary period-summary-1">
-      <div>
-        <small>Serviços de ${escapeHtml(nomeDoCliente(todos, cliente))} no período</small>
-        <strong class="pos">${formatMoney(servicosCliente.reduce((s, l) => s + l.valor, 0))}</strong>
-        <span class="futuro neutro">${servicosCliente.length} serviço(s)</span>
-      </div>
-    </div>` : `
-    <div class="period-summary">
-      <div>
-        <small>Entradas</small><strong class="pos">${formatMoney(entradas)}</strong>
-        ${aLiberar ? `<span class="futuro">+ ${valorVisivel(aLiberar)} a liberar</span>` : ''}
-      </div>
-      <div>
-        <small>Saídas</small><strong class="neg">${formatMoney(saidas)}</strong>
-        ${aDescontar ? `<span class="futuro">− ${valorVisivel(aDescontar)} a descontar</span>` : ''}
-      </div>
-    </div>`;
+  const busca = `
+    <label class="busca busca-extrato">
+      ${icon('search')}
+      <input type="search" data-busca-extrato data-manter-foco="busca" value="${escapeHtml(state.busca)}"
+        placeholder="Buscar" autocomplete="off" aria-label="Buscar no extrato">
+    </label>`;
 
   const header = isAdmin()
     ? `<header class="topbar">
@@ -590,11 +587,92 @@ function viewConta() {
           <button class="period-btn" data-action="abrir-periodo">${icon('calendar')} ${rotuloPeriodo(state.filtro)}</button>
         </div>
         ${filtroTipo}
-        ${filtroCliente}
-        ${resumo}
-        ${agendadosHtml(futuros)}
-        ${extratoHtml(todos, doPeriodo.filter(filtrar), cliente ? 'cliente' : tipo)}
+        <div class="filtros-linha">${busca}${filtroCliente}</div>
+        <div id="extrato-conteudo">${extratoConteudo(m)}</div>
       </section>
+    </div>`;
+}
+
+// Painel geral do administrador: o movimento real do período (sem estornos e cancelados),
+// por marceneiro e por cliente somando todos os marceneiros
+function viewPainel() {
+  const { inicio, fim } = state.painel;
+  const hoje = today();
+  const noPeriodo = l => !l.cancelado && !l.estornado && !l.estornoDe && l.data <= hoje
+    && (!inicio || l.data >= inicio) && (!fim || l.data <= fim);
+  const movimento = state.lancamentos.filter(noPeriodo);
+  const soma = (lista, tipo) => lista.filter(l => l.tipo === tipo).reduce((s, l) => s + l.valor, 0);
+
+  const contas = state.marceneiros.map(m => {
+    const doMarceneiro = movimento.filter(l => l.marcId === m.id);
+    return { m, entradas: soma(doMarceneiro, 'credito'), saidas: soma(doMarceneiro, 'debito'), ...resumoConta(lancamentosDe(m.id)) };
+  }).sort((a, b) => b.entradas - a.entradas || a.m.nome.localeCompare(b.m.nome, 'pt-BR'));
+  const totalDe = campo => contas.reduce((s, c) => s + c[campo], 0);
+
+  const servicos = movimento.filter(l => l.tipo === 'credito');
+  const clientes = clientesDe(servicos).map(([chave, nome]) => {
+    const doCliente = servicos.filter(l => chaveCliente(l.cliente) === chave);
+    const quem = [...new Set(doCliente.map(l => marceneiroDe(l.marcId)?.nome).filter(Boolean))];
+    return { nome, total: doCliente.reduce((s, l) => s + l.valor, 0), quantidade: doCliente.length, quem };
+  }).sort((a, b) => b.total - a.total);
+
+  const aprovados = state.pedidos.filter(p => {
+    if (p.status !== 'aprovado') return false;
+    const dia = toIso(momento(p.respondidoEm));
+    return (!inicio || dia >= inicio) && (!fim || dia <= fim);
+  });
+
+  const linhasContas = contas.map(({ m, entradas, saidas, saldo }) => `
+    <button class="painel-linha" data-action="open-conta" data-id="${m.id}">
+      <span class="avatar sm">${escapeHtml(initials(m.nome))}</span>
+      <span class="painel-info">
+        <strong class="truncate">${escapeHtml(m.nome)}</strong>
+        <small><span class="pos">+ ${formatMoney(entradas)}</span> · <span class="neg">− ${formatMoney(saidas)}</span></small>
+      </span>
+      <span class="painel-valor"><small>Saldo</small>${valorVisivel(saldo)}</span>
+    </button>`).join('');
+
+  const linhasClientes = clientes.map(c => `
+    <div class="painel-linha">
+      <span class="avatar sm">${escapeHtml(initials(c.nome))}</span>
+      <span class="painel-info">
+        <strong class="truncate">${escapeHtml(c.nome)}</strong>
+        <small class="truncate">${c.quantidade} serviço(s) · ${escapeHtml(c.quem.join(', '))}</small>
+      </span>
+      <span class="painel-valor pos">${formatMoney(c.total)}</span>
+    </div>`).join('');
+
+  return `
+    <div class="conta">
+      <header class="topbar">
+        <button class="icon-btn" data-action="back" title="Voltar">${icon('back')}</button>
+        <div class="brand-center"><span>Painel geral</span></div>
+        <span class="icon-btn-espaco"></span>
+      </header>
+
+      <div class="section-head">
+        <h2>Resumo</h2>
+        <button class="period-btn" data-action="abrir-periodo-painel">${icon('calendar')} ${rotuloPeriodo(state.painel)}</button>
+      </div>
+
+      <div class="painel-cards">
+        <div><small>Entradas no período</small><strong class="pos">${formatMoney(soma(movimento, 'credito'))}</strong></div>
+        <div><small>Saídas no período</small><strong class="neg">${formatMoney(soma(movimento, 'debito'))}</strong></div>
+        <div><small>Saldo da equipe hoje</small><strong>${valorVisivel(totalDe('saldo'))}</strong></div>
+        <div><small>Agendados</small>
+          <strong class="painel-agendados"><span class="pos">+ ${formatMoney(totalDe('aLiberar'))}</span><span class="neg">− ${formatMoney(totalDe('aDescontar'))}</span></strong>
+        </div>
+      </div>
+      <p class="hint painel-nota">
+        ${aprovados.length} pedido(s) de retirada aprovado(s) no período, somando ${formatMoney(aprovados.reduce((s, p) => s + p.valor, 0))}.
+        Estornos e agendamentos cancelados não entram nas contas.
+      </p>
+
+      <div class="section-head"><h2>Por marceneiro</h2></div>
+      <div class="painel-lista">${linhasContas || '<p class="empty">Nenhum marceneiro cadastrado.</p>'}</div>
+
+      <div class="section-head"><h2>Por cliente</h2></div>
+      <div class="painel-lista">${linhasClientes || '<p class="empty">Nenhum serviço com cliente neste período.</p>'}</div>
     </div>`;
 }
 
@@ -629,6 +707,61 @@ function viewPedidos() {
 }
 
 // Bloco recolhível: a seta esconde a lista para o extrato aparecer logo
+// Parte de baixo do extrato (resumo, agendados e lista). Fica separada para a busca
+// atualizar só ela enquanto a pessoa digita, sem tirar o foco do campo.
+function extratoConteudo(m) {
+  const todos = lancamentosDe(m.id);
+  const { inicio, fim, tipo, cliente } = state.filtro;
+  const hoje = today();
+  const filtrar = passaNoFiltro(state.filtro);
+
+  // Com busca: procura em todo o histórico (inclusive agendados), sem o resumo do período
+  const termo = semAcento(state.busca);
+  if (termo) {
+    const achados = todos.filter(l => filtrar(l) && textoDeBusca(l).includes(termo));
+    return `
+      <p class="busca-info">${achados.length} resultado(s) em todo o histórico</p>
+      ${extratoHtml(todos, achados, 'busca')}`;
+  }
+
+  // Agendados (data futura) aparecem sempre, à parte, e não entram nos totais
+  const { aLiberar, aDescontar } = resumoConta(todos);
+  const futuros = todos.filter(l => l.data > hoje && filtrar(l)).sort(porDataEHora);
+  const doPeriodo = todos.filter(l => l.data <= hoje && (!inicio || l.data >= inicio) && (!fim || l.data <= fim));
+  const entradas = doPeriodo.filter(l => l.tipo === 'credito').reduce((s, l) => s + l.valor, 0);
+  const saidas = doPeriodo.filter(l => l.tipo === 'debito').reduce((s, l) => s + l.valor, 0);
+
+  // Com cliente escolhido, o resumo vira o total de serviços dele no período (sem os estornados)
+  const servicosCliente = cliente ? doPeriodo.filter(l => filtrar(l) && !l.estornado) : [];
+  const resumo = cliente ? `
+    <div class="period-summary period-summary-1">
+      <div>
+        <small>Serviços de ${escapeHtml(nomeDoCliente(todos, cliente))} no período</small>
+        <strong class="pos">${formatMoney(servicosCliente.reduce((s, l) => s + l.valor, 0))}</strong>
+        <span class="futuro neutro">${servicosCliente.length} serviço(s)</span>
+      </div>
+    </div>` : `
+    <div class="period-summary">
+      <div>
+        <small>Entradas</small><strong class="pos">${formatMoney(entradas)}</strong>
+        ${aLiberar ? `<span class="futuro">+ ${valorVisivel(aLiberar)} a liberar</span>` : ''}
+      </div>
+      <div>
+        <small>Saídas</small><strong class="neg">${formatMoney(saidas)}</strong>
+        ${aDescontar ? `<span class="futuro">− ${valorVisivel(aDescontar)} a descontar</span>` : ''}
+      </div>
+    </div>`;
+
+  return `
+    ${resumo}
+    ${agendadosHtml(futuros)}
+    ${extratoHtml(todos, doPeriodo.filter(filtrar), cliente ? 'cliente' : tipo)}`;
+}
+
+// Texto em que a busca procura: descrição, cliente e valor ("600" acha "R$ 600,00")
+const textoDeBusca = l =>
+  semAcento(`${l.desc} ${l.cliente || ''} ${formatMoney(l.valor)} ${l.valor.toFixed(2).replace('.', ',')}`);
+
 function agendadosHtml(futuros) {
   if (!futuros.length) return '';
   const aberto = state.agendadosAberto;
@@ -644,12 +777,13 @@ function agendadosHtml(futuros) {
 
 function extratoHtml(todos, lancamentos, tipo) {
   const vazio = {
-    todos: 'Nenhum lançamento',
-    credito: 'Nenhuma entrada',
-    debito: 'Nenhuma saída',
-    cliente: 'Nenhum serviço deste cliente',
+    todos: 'Nenhum lançamento neste período.',
+    credito: 'Nenhuma entrada neste período.',
+    debito: 'Nenhuma saída neste período.',
+    cliente: 'Nenhum serviço deste cliente neste período.',
+    busca: 'Nada encontrado. Tente outra palavra ou valor.',
   }[tipo];
-  if (!lancamentos.length) return `<p class="empty">${vazio} neste período.</p>`;
+  if (!lancamentos.length) return `<p class="empty">${vazio}</p>`;
 
   const saldoDoDia = saldosDiarios(todos);
   const porDia = new Map();
@@ -697,10 +831,21 @@ const VIEWS = {
   admin: viewAdmin,
   conta: viewConta,
   pedidos: viewPedidos,
+  painel: viewPainel,
 };
 
 function render() {
+  // Se a pessoa está digitando na busca e chegam dados novos, o cursor continua no lugar
+  const ativo = document.activeElement;
+  const foco = ativo?.dataset?.manterFoco ? [ativo.dataset.manterFoco, ativo.selectionStart] : null;
+
   $('#app').innerHTML = VIEWS[state.screen]();
+
+  if (foco) {
+    const campo = document.querySelector(`[data-manter-foco="${foco[0]}"]`);
+    campo?.focus();
+    campo?.setSelectionRange(foco[1], foco[1]);
+  }
 }
 
 function go(screen) {
@@ -712,6 +857,7 @@ function go(screen) {
 function openConta(id) {
   state.contaId = id;
   state.filtro = filtroInicial();
+  state.busca = '';
   go('conta');
 }
 
@@ -723,7 +869,7 @@ function aoMudarLogin(user) {
   pararEscutas.forEach(parar => parar());
   pararEscutas = [];
   document.querySelectorAll('dialog[open]').forEach(d => d.close()); // nada fica aberto de outra sessão
-  Object.assign(state, { user, marceneiros: [], lancamentos: [], pedidos: [], saldoOculto: false, filtro: filtroInicial() });
+  Object.assign(state, { user, marceneiros: [], lancamentos: [], pedidos: [], saldoOculto: false, filtro: filtroInicial(), busca: '' });
   state.carregados.clear();
 
   if (!user) {
@@ -882,7 +1028,6 @@ function abrirClientes() {
 function renderListaClientes(termo) {
   const todos = lancamentosDe(state.contaId);
   const atual = state.filtro.cliente;
-  const semAcento = texto => chaveCliente(texto).normalize('NFD').replace(/\p{M}/gu, ''); // "joao" acha "João"
   const procura = semAcento(termo);
 
   const item = (chave, titulo, detalhe, avatar) => `
@@ -913,11 +1058,13 @@ function renderListaClientes(termo) {
 
 let cal = { modo: 'filtro', mes: '', inicio: null, fim: null, tipo: 'todos', cliente: '' };
 
+// modo: 'filtro' (extrato na tela), 'pdf' (extrato em PDF) ou 'painel' (painel geral)
 function abrirPeriodo(modo) {
-  const { inicio, fim, tipo, cliente } = state.filtro;
+  const { inicio, fim, tipo, cliente } = modo === 'painel' ? { ...state.painel, tipo: 'todos', cliente: '' } : state.filtro;
   cal = { modo, inicio, fim, tipo, cliente, mes: (inicio ?? today()).slice(0, 7) };
   const nomeCliente = cliente && nomeDoCliente(lancamentosDe(state.contaId), cliente);
-  $('#periodo-titulo').textContent = modo !== 'pdf' ? 'Período do extrato'
+  $('#periodo-titulo').textContent = modo === 'painel' ? 'Período do painel'
+    : modo === 'filtro' ? 'Período do extrato'
     : cliente ? `Serviços de ${nomeCliente} em PDF` : 'Extrato em PDF';
   $('#periodo-ok').textContent = modo === 'pdf' ? 'Gerar PDF' : 'Aplicar';
   // Na tela o filtro de tipo já fica no extrato; com cliente escolhido, são só serviços
@@ -992,6 +1139,9 @@ function confirmarPeriodo() {
   if (cal.modo === 'pdf') {
     // Espera a janela fechar para ela não sair na impressão
     setTimeout(() => imprimirExtrato(contaAtual(), inicio, fim, cal.tipo, cal.cliente), 150);
+  } else if (cal.modo === 'painel') {
+    state.painel = { inicio, fim };
+    render();
   } else {
     state.filtro = { ...state.filtro, inicio, fim };
     render();
@@ -1211,6 +1361,7 @@ async function baixarBackup() {
 // ================= PEDIDOS (admin responde) =================
 
 async function responderPedido(id, aprovar) {
+  if (!exigeInternet()) return;
   const p = state.pedidos.find(x => x.id === id);
   const m = marceneiroDe(p.marcId);
   if (aprovar) {
@@ -1278,6 +1429,11 @@ const actions = {
     render();
   },
   'abrir-periodo': () => abrirPeriodo('filtro'),
+  'abrir-periodo-painel': () => abrirPeriodo('painel'),
+  'abrir-painel': () => {
+    state.painel = esteMes();
+    go('painel');
+  },
   'imprimir': () => abrirPeriodo('pdf'),
   'periodo-rapido': el => {
     const { inicio, fim } = el.dataset.rapido === 'tudo' ? { inicio: null, fim: null } : esteMes();
@@ -1335,6 +1491,7 @@ const actions = {
     openDialog('dlg-editar', { nome: m.nome });
   },
   'reenviar-senha': async () => {
+    if (!exigeInternet()) return;
     const m = contaAtual();
     try {
       await Store.enviarEmailSenha(m.email);
@@ -1357,6 +1514,7 @@ const actions = {
   'recusar-pedido': el => responderPedido(el.dataset.id, false),
 
   'delete-marceneiro': async el => {
+    if (!exigeInternet()) return;
     const m = contaAtual();
     el.closest('dialog').close();
     const confirmado = await confirmar({
@@ -1378,6 +1536,7 @@ const actions = {
 
   // Estorno: o original fica riscado no extrato e entra o lançamento contrário com data de hoje
   'estornar-lancamento': async el => {
+    if (!exigeInternet()) return;
     const l = state.lancamentos.find(x => x.id === el.dataset.id);
     const m = contaAtual();
     el.closest('dialog').close();
@@ -1407,6 +1566,7 @@ const actions = {
   },
 
   'cancelar-agendado': async el => {
+    if (!exigeInternet()) return;
     const l = state.lancamentos.find(x => x.id === el.dataset.id);
     el.closest('dialog').close();
     if (ficariaNegativoTrocando(lancamentosDe(l.marcId), l)) {
@@ -1560,6 +1720,7 @@ document.addEventListener('submit', async e => {
   const form = e.target.closest('form[data-form]');
   if (!form) return;
   e.preventDefault();
+  if (!exigeInternet()) return;
 
   const botao = form.querySelector('button:not([type="button"])');
   botao.disabled = true; // evita salvar duas vezes com clique duplo
@@ -1578,13 +1739,26 @@ document.addEventListener('input', e => {
   if (e.target.matches('[data-money]')) e.target.value = maskMoneyInput(e.target.value);
   if (e.target.form?.id === 'form-parcelado') updateParceladoPreview();
   if (e.target.matches('[data-busca-cliente]')) renderListaClientes(e.target.value);
+  if (e.target.matches('[data-busca-extrato]')) {
+    state.busca = e.target.value;
+    $('#extrato-conteudo').innerHTML = extratoConteudo(contaAtual());
+  }
 });
 
 document.addEventListener('change', e => {
   if (e.target.name === 'liberacao') atualizarAgendaServico(e.target.form);
 });
 
+// Aviso de "sem internet" no topo, que some sozinho quando a conexão volta
+function atualizarAvisoOffline() {
+  $('#offline').hidden = navigator.onLine;
+}
+window.addEventListener('online', atualizarAvisoOffline);
+window.addEventListener('offline', atualizarAvisoOffline);
+
 // ================= INÍCIO =================
+
+atualizarAvisoOffline();
 
 if (Store.configurado) {
   render(); // "Carregando…" até o Firebase dizer se já tem alguém logado

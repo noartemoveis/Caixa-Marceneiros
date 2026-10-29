@@ -175,6 +175,12 @@ svg { width: 20px; height: 20px; flex-shrink: 0; }
 .filtro-cliente svg { width: 18px; height: 18px; }
 .filtro-cliente span { flex: 1; min-width: 0; font-size: 14px; font-weight: 600; color: var(--text); }
 
+/* Busca + clientes na mesma linha do extrato */
+.filtros-linha { display: flex; gap: 8px; margin-bottom: 12px; }
+.filtros-linha .busca-extrato { flex: 1; min-width: 0; background: var(--surface); }
+.filtros-linha .filtro-cliente { width: auto; max-width: 45%; margin-bottom: 0; flex-shrink: 0; }
+.busca-info { margin: 0 4px 12px; color: var(--muted); font-size: 13px; font-weight: 600; }
+
 /* Janela de escolha de cliente */
 .busca {
   display: flex; align-items: center; gap: 8px;
@@ -278,6 +284,48 @@ svg { width: 20px; height: 20px; flex-shrink: 0; }
 /* Histórico de alterações no comprovante */
 .historico { list-style: none; padding: 0; margin: -4px 0 16px; display: flex; flex-direction: column; gap: 8px; }
 .historico li { padding: 10px 12px; background: var(--amber-soft); border-radius: 10px; font-size: 12px; color: var(--amber); }
+
+/* Painel geral */
+.painel-atalho {
+  width: 100%;
+  display: flex; align-items: center; gap: 12px;
+  margin: -6px 0 24px; padding: 12px 14px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow); text-align: left;
+  transition: border-color .15s;
+}
+.painel-atalho:hover { border-color: var(--accent); }
+.painel-atalho .qa-icon { width: 44px; height: 44px; border-radius: 14px; flex-shrink: 0; }
+.painel-atalho > span:nth-child(2) { flex: 1; min-width: 0; }
+.painel-atalho strong { display: block; font-size: 15px; }
+.painel-atalho small { color: var(--muted); font-size: 12px; }
+.painel-atalho > svg { color: var(--muted); }
+
+.painel-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.painel-cards div { min-width: 0; padding: 12px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+.painel-cards small { display: block; color: var(--muted); font-size: 12px; }
+.painel-cards strong { display: block; font-size: clamp(13px, 4vw, 16px); white-space: nowrap; }
+.painel-agendados { display: flex !important; flex-direction: column; font-size: 13px !important; }
+.painel-nota { margin: 10px 2px 24px; }
+
+.painel-lista { display: flex; flex-direction: column; margin-bottom: 24px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.painel-linha { width: 100%; display: flex; align-items: center; gap: 12px; padding: 12px 14px; text-align: left; }
+.painel-linha + .painel-linha { border-top: 1px solid var(--border); }
+button.painel-linha:hover { background: var(--bg); }
+.painel-info { flex: 1; min-width: 0; }
+.painel-info strong { display: block; font-size: 14px; }
+.painel-info small { display: block; color: var(--muted); font-size: 12px; }
+.painel-valor { font-weight: 700; font-size: 14px; white-space: nowrap; text-align: right; }
+.painel-valor small { display: block; color: var(--muted); font-size: 11px; font-weight: 500; }
+
+/* Aviso de sem internet, fixo no topo */
+.offline {
+  position: sticky; top: 0; z-index: 50;
+  padding: calc(8px + env(safe-area-inset-top)) 16px 8px;
+  background: var(--amber-soft); color: var(--amber);
+  font-size: 13px; text-align: center;
+  border-bottom: 1px solid #F0DCA8;
+}
 
 /* Quadro de backup na tela do administrador */
 .backup {
