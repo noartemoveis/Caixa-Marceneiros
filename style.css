@@ -198,9 +198,12 @@ svg { width: 20px; height: 20px; flex-shrink: 0; }
 .opcao input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .period-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; }
-.period-summary div { padding: 12px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+.period-summary div { min-width: 0; padding: 12px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
 .period-summary small { display: block; color: var(--muted); font-size: 12px; }
-.period-summary strong { font-size: 16px; }
+/* O valor nunca quebra no meio: em tela estreita a fonte diminui um pouco */
+.period-summary strong { display: block; font-size: clamp(13px, 4vw, 16px); white-space: nowrap; }
+/* Valores agendados: ainda não entram no total acima (quebra só entre palavras) */
+.period-summary .futuro { display: block; margin-top: 4px; color: var(--amber); font-size: 12px; font-weight: 600; }
 
 /* ---------- Extrato ---------- */
 .day-group { margin-bottom: 18px; }

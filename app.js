@@ -433,10 +433,6 @@ function viewConta() {
   const todos = lancamentosDe(m.id);
   const { saldo, aLiberar, aDescontar } = resumoConta(todos);
   const { inicio, fim, tipo } = state.filtro;
-  const agendados = [
-    aLiberar && `A liberar: ${valorVisivel(aLiberar)}`,
-    aDescontar && `Parcelas futuras: ${valorVisivel(aDescontar)}`,
-  ].filter(Boolean).join(' · ') || 'Nenhum lançamento agendado';
 
   // Agendados (data futura) aparecem sempre, à parte, e não entram nos totais
   const hoje = today();
@@ -501,7 +497,6 @@ function viewConta() {
       <section class="balance-card">
         <div class="balance-top"><span>Saldo disponível</span>${eyeButton()}</div>
         <strong class="balance-value${saldo < 0 ? ' is-negative' : ''}">${valorVisivel(saldo)}</strong>
-        <small>${agendados}</small>
       </section>
 
       <nav class="quick-actions">${acoes}</nav>
@@ -515,8 +510,14 @@ function viewConta() {
         </div>
         <div class="segmented segmented-3 filtro-tipo">${filtroTipo}</div>
         <div class="period-summary">
-          <div><small>Entradas</small><strong class="pos">${formatMoney(entradas)}</strong></div>
-          <div><small>Saídas</small><strong class="neg">${formatMoney(saidas)}</strong></div>
+          <div>
+            <small>Entradas</small><strong class="pos">${formatMoney(entradas)}</strong>
+            ${aLiberar ? `<span class="futuro">+ ${valorVisivel(aLiberar)} a liberar</span>` : ''}
+          </div>
+          <div>
+            <small>Saídas</small><strong class="neg">${formatMoney(saidas)}</strong>
+            ${aDescontar ? `<span class="futuro">− ${valorVisivel(aDescontar)} a descontar</span>` : ''}
+          </div>
         </div>
         ${agendadosHtml(futuros)}
         ${extratoHtml(todos, doPeriodo.filter(doTipo), tipo)}
