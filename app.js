@@ -153,6 +153,8 @@ const ICONS = {
   chevronRight: '<path d="M9 18l6-6-6-6"/>',
   chevronDown: '<path d="M6 9l6 6 6-6"/>',
   user: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
 };
 
 const icon = name =>
@@ -478,17 +480,12 @@ function viewConta() {
         `<button type="button" class="${tipo === id ? 'active' : ''}" data-action="filtro-tipo" data-tipo="${id}">${rotulo}</button>`).join('')}
     </div>`;
 
-  const clientes = clientesDe(todos);
-  const filtroCliente = clientes.length ? `
-    <label class="filtro-cliente${cliente ? ' ativo' : ''}">
+  const filtroCliente = clientesDe(todos).length ? `
+    <button class="filtro-cliente${cliente ? ' ativo' : ''}" data-action="abrir-clientes">
       ${icon('user')}
-      <select data-filtro-cliente aria-label="Filtrar por cliente">
-        <option value="">Todos os clientes</option>
-        ${clientes.map(([chave, nomeCliente]) =>
-          `<option value="${escapeHtml(chave)}"${chave === cliente ? ' selected' : ''}>${escapeHtml(nomeCliente)}</option>`).join('')}
-      </select>
+      <span class="truncate">${cliente ? escapeHtml(nomeDoCliente(todos, cliente)) : 'Todos os clientes'}</span>
       ${icon('chevronDown')}
-    </label>` : '';
+    </button>` : '';
 
   // Com cliente escolhido, o resumo vira o total de serviços dele no período
   const servicosCliente = cliente ? doPeriodo.filter(filtrar) : [];
@@ -812,6 +809,44 @@ function updateParceladoPreview() {
     : '';
 }
 
+// ================= ESCOLHA DE CLIENTE =================
+// Janela com busca; cada cliente mostra quantos serviços e quanto já somou
+
+function abrirClientes() {
+  const busca = $('[data-busca-cliente]');
+  busca.value = '';
+  renderListaClientes('');
+  $('#dlg-cliente').showModal();
+}
+
+function renderListaClientes(termo) {
+  const todos = lancamentosDe(state.contaId);
+  const atual = state.filtro.cliente;
+  const semAcento = texto => chaveCliente(texto).normalize('NFD').replace(/\p{M}/gu, ''); // "joao" acha "João"
+  const procura = semAcento(termo);
+
+  const item = (chave, titulo, detalhe, avatar) => `
+    <button class="cliente-item${chave === atual ? ' escolhido' : ''}" data-action="escolher-cliente" data-cliente="${escapeHtml(chave)}">
+      ${avatar}
+      <span class="cliente-info"><strong class="truncate">${escapeHtml(titulo)}</strong><small>${detalhe}</small></span>
+      ${chave === atual ? icon('check') : ''}
+    </button>`;
+
+  const clientes = clientesDe(todos)
+    .filter(([chave]) => !procura || semAcento(chave).includes(procura))
+    .map(([chave, nome]) => {
+      const servicos = todos.filter(l => chaveCliente(l.cliente) === chave);
+      const total = servicos.reduce((s, l) => s + l.valor, 0);
+      return item(chave, nome, `${servicos.length} serviço(s) · ${formatMoney(total)}`,
+        `<span class="avatar sm">${escapeHtml(initials(nome))}</span>`);
+    }).join('');
+
+  const todosItem = procura ? '' : item('', 'Todos os clientes', 'Mostrar o extrato completo',
+    `<span class="avatar sm avatar-icone">${icon('user')}</span>`);
+
+  $('#lista-clientes').innerHTML = todosItem + (clientes || '<p class="empty">Nenhum cliente com esse nome.</p>');
+}
+
 // ================= CALENDÁRIO DE PERÍODO =================
 // Usado para filtrar o extrato na tela (modo 'filtro') e para gerar o PDF (modo 'pdf').
 // Toque no primeiro dia e depois no último para marcar o período.
@@ -1130,6 +1165,12 @@ const actions = {
     salvarPreferencia(AGENDADOS_KEY, state.agendadosAberto ? 'aberto' : 'fechado');
     render();
   },
+  'abrir-clientes': abrirClientes,
+  'escolher-cliente': el => {
+    $('#dlg-cliente').close();
+    state.filtro = { ...state.filtro, cliente: el.dataset.cliente };
+    render();
+  },
   'filtro-tipo': el => {
     state.filtro = { ...state.filtro, tipo: el.dataset.tipo };
     render();
@@ -1338,14 +1379,11 @@ document.addEventListener('submit', async e => {
 document.addEventListener('input', e => {
   if (e.target.matches('[data-money]')) e.target.value = maskMoneyInput(e.target.value);
   if (e.target.form?.id === 'form-parcelado') updateParceladoPreview();
+  if (e.target.matches('[data-busca-cliente]')) renderListaClientes(e.target.value);
 });
 
 document.addEventListener('change', e => {
   if (e.target.name === 'liberacao') atualizarAgendaServico(e.target.form);
-  if (e.target.matches('[data-filtro-cliente]')) {
-    state.filtro = { ...state.filtro, cliente: e.target.value };
-    render();
-  }
 });
 
 // ================= INÍCIO =================

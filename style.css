@@ -161,27 +161,47 @@ svg { width: 20px; height: 20px; flex-shrink: 0; }
 .segmented-3 { grid-template-columns: repeat(3, 1fr); }
 .filtro-tipo { margin-bottom: 12px; }
 
-/* Filtro de cliente: caixa de seleção no visual do app */
+/* Botão do filtro de cliente (abre a janela de escolha) */
 .filtro-cliente {
-  position: relative;
+  width: 100%;
   display: flex; align-items: center; gap: 8px;
-  margin-bottom: 12px; padding: 0 12px;
+  margin-bottom: 12px; padding: 11px 12px;
   background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
   color: var(--muted);
-  cursor: pointer;
+  transition: border-color .15s;
 }
+.filtro-cliente:hover { border-color: var(--accent); }
 .filtro-cliente.ativo { border-color: var(--accent); color: var(--accent); }
-.filtro-cliente svg { width: 18px; height: 18px; pointer-events: none; }
-.filtro-cliente select {
-  flex: 1; min-width: 0;
-  padding: 11px 0;
-  border: 0; background: transparent;
-  font: inherit; font-size: 14px; font-weight: 600; color: var(--text);
-  appearance: none; -webkit-appearance: none;
-  cursor: pointer;
+.filtro-cliente svg { width: 18px; height: 18px; }
+.filtro-cliente span { flex: 1; min-width: 0; font-size: 14px; font-weight: 600; color: var(--text); }
+
+/* Janela de escolha de cliente */
+.busca {
+  display: flex; align-items: center; gap: 8px;
+  padding: 0 12px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 12px;
+  color: var(--muted);
 }
-.filtro-cliente select:focus { outline: none; }
-.filtro-cliente:focus-within { border-color: var(--accent); }
+.busca:focus-within { border-color: var(--accent); background: var(--surface); }
+.busca svg { width: 18px; height: 18px; }
+.busca input { flex: 1; min-width: 0; padding: 11px 0; border: 0; background: transparent; font-size: 16px; }
+.busca input:focus { outline: none; }
+
+.lista-clientes { display: flex; flex-direction: column; gap: 4px; max-height: 55dvh; overflow-y: auto; margin: 0 -6px; padding: 0 6px; }
+.cliente-item {
+  width: 100%;
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px;
+  border-radius: 12px;
+  transition: background .15s;
+}
+.cliente-item:hover { background: var(--bg); }
+.cliente-item.escolhido { background: var(--accent-soft); }
+.cliente-item > svg { color: var(--accent); }
+.cliente-info { flex: 1; min-width: 0; }
+.cliente-info strong { display: block; font-size: 15px; }
+.cliente-info small { color: var(--muted); font-size: 12px; }
+.avatar-icone svg { width: 16px; height: 16px; }
 
 /* Bloco de agendados no extrato */
 .agendados .day-head { color: var(--amber); }
