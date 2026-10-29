@@ -559,17 +559,11 @@ function viewPedidos() {
 function agendadosHtml(futuros) {
   if (!futuros.length) return '';
   const aberto = state.agendadosAberto;
-  // Entradas e saídas separadas (somar as duas confundia: 2.500 a liberar − 4.800 de parcelas = −2.300)
-  const soma = tipo => futuros.filter(l => l.tipo === tipo).reduce((s, l) => s + l.valor, 0);
-  const totais = [
-    soma('credito') && `<b class="pos">+ ${valorVisivel(soma('credito'))}</b>`,
-    soma('debito') && `<b class="neg">− ${valorVisivel(soma('debito'))}</b>`,
-  ].filter(Boolean).join(' ');
   return `
     <div class="day-group agendados${aberto ? '' : ' recolhido'}">
       <button class="day-head agendados-toggle" data-action="toggle-agendados" aria-expanded="${aberto}">
         <span>${icon('chevronDown')} Agendados (${futuros.length})</span>
-        <span class="agendados-totais">${aberto ? 'Ainda não contam no saldo' : totais}</span>
+        ${aberto ? '<span>Ainda não contam no saldo</span>' : ''}
       </button>
       ${aberto ? `<div class="day-list">${futuros.map(lancamentoHtml).join('')}</div>` : ''}
     </div>`;

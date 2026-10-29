@@ -165,8 +165,6 @@ svg { width: 20px; height: 20px; flex-shrink: 0; }
 .agendados .day-head { color: var(--amber); }
 .agendados-toggle { width: 100%; padding-top: 4px; padding-bottom: 4px; }
 .agendados-toggle span { display: inline-flex; align-items: center; gap: 4px; }
-.agendados-totais { flex-wrap: wrap; justify-content: flex-end; gap: 4px 10px !important; }
-.agendados-totais b { white-space: nowrap; }
 .agendados-toggle svg { width: 16px; height: 16px; transition: transform .2s; }
 .agendados.recolhido .agendados-toggle svg { transform: rotate(-90deg); }
 .agendados .day-list { border-style: dashed; }
