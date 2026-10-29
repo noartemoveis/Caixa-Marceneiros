@@ -367,6 +367,13 @@ function cartaoNotificacoes() {
      <button class="btn btn-primary btn-sm" data-action="ativar-push">Ativar</button>`);
 }
 
+// Sininho no topo: aparece enquanto os avisos não estão ativos neste aparelho
+function botaoAvisos() {
+  if (!Store.notificacoesConfiguradas || globalThis.Notification?.permission === 'granted') return '';
+  if (!globalThis.Notification && !ehIphone) return ''; // navegador sem suporte a avisos
+  return `<button class="icon-btn" data-action="ativar-push" title="Ativar avisos neste aparelho">${icon('bell')}</button>`;
+}
+
 function eyeButton() {
   const label = state.saldoOculto ? 'Mostrar saldo' : 'Esconder saldo';
   return `<button data-action="toggle-saldo" aria-label="${label}" title="${label}">${icon(state.saldoOculto ? 'eyeOff' : 'eye')}</button>`;
@@ -414,7 +421,10 @@ function pedidoHtml(p, { mostrarNome, mostrarBotoes }) {
   const [rotulo, classe] = STATUS_PEDIDO[p.status];
   const limite = mostrarBotoes && p.status === 'pendente' ? limiteRetirada(lancamentosDe(p.marcId), today()) : Infinity;
   const aviso = p.valor > limite + CENTAVO
-    ? `<p class="pedido-aviso">Saldo insuficiente: disponível ${formatMoney(limite)}</p>` : '';
+    ? `<p class="pedido-aviso">Saldo não cobre o pedido todo: disponível ${formatMoney(limite)}</p>` : '';
+  // Aprovado com valor menor que o pedido: mostra quanto foi aprovado
+  const parcial = p.status === 'aprovado' && p.valorAprovado && p.valorAprovado < p.valor - CENTAVO;
+  const resposta = p.resposta ? `<p class="pedido-resposta">“${escapeHtml(p.resposta)}”</p>` : '';
   const botoes = mostrarBotoes && p.status === 'pendente' ? `${aviso}
     <div class="pedido-acoes">
       <button class="btn btn-ghost btn-sm" data-action="recusar-pedido" data-id="${p.id}">Recusar</button>
@@ -430,10 +440,12 @@ function pedidoHtml(p, { mostrarNome, mostrarBotoes }) {
           <small>${escapeHtml(p.motivo || 'Sem motivo informado')} · ${formatMomento(p.criadoEm)}</small>
         </div>
         <div class="pedido-valor">
-          <strong>${formatMoney(p.valor)}</strong>
+          <strong>${formatMoney(parcial ? p.valorAprovado : p.valor)}</strong>
+          ${parcial ? `<small class="pedido-de">de ${formatMoney(p.valor)}</small>` : ''}
           <span class="${classe}">${rotulo}</span>
         </div>
       </div>
+      ${resposta}
       ${botoes}
     </div>`;
 }
@@ -477,6 +489,7 @@ function viewAdmin() {
         <div><strong>Olá, Administrador</strong><small>Caixa dos Marceneiros</small></div>
       </div>
       <div class="topbar-actions">
+        ${botaoAvisos()}
         <button class="icon-btn com-badge" data-action="ver-pedidos" title="Pedidos de retirada">
           ${icon('inbox')}${pendentes.length ? `<span class="badge">${pendentes.length}</span>` : ''}
         </button>
@@ -567,7 +580,10 @@ function viewConta() {
           <span class="avatar">${escapeHtml(initials(m.nome))}</span>
           <div><strong>Olá, ${escapeHtml(firstName(m.nome))}</strong><small>Caixa dos Marceneiros · Nô Art</small></div>
         </div>
-        <button class="icon-btn" data-action="logout" title="Sair">${icon('logout')}</button>
+        <div class="topbar-actions">
+          ${botaoAvisos()}
+          <button class="icon-btn" data-action="logout" title="Sair">${icon('logout')}</button>
+        </div>
       </header>`;
 
   const acoes = (isAdmin()
@@ -942,6 +958,7 @@ function openDialog(id, valores = {}) {
     form.reset();
     form.querySelectorAll('input[type="date"]').forEach(input => { input.value = today(); });
     Object.entries(valores).forEach(([name, value]) => { form.elements[name].value = value; });
+    form.querySelectorAll('[data-sugestoes-cliente]').forEach(caixa => { caixa.innerHTML = ''; });
   }
   if (id === 'dlg-parcelado') updateParceladoPreview();
   if (id === 'dlg-servico') atualizarAgendaServico(form);
@@ -1086,6 +1103,23 @@ function renderListaClientes(termo) {
     `<span class="avatar sm avatar-icone">${icon('user')}</span>`);
 
   $('#lista-clientes').innerHTML = todosItem + (clientes || '<p class="empty">Nenhum cliente com esse nome.</p>');
+}
+
+// ================= SUGESTÃO DE CLIENTE =================
+// Ao digitar o cliente de um serviço, mostra botões com os clientes já usados (de todos os marceneiros)
+
+function sugerirClientes(campo) {
+  const caixa = campo.parentElement.querySelector('[data-sugestoes-cliente]');
+  const termo = semAcento(campo.value);
+  // Some quando o nome digitado já é exatamente um cliente conhecido
+  const nomes = termo
+    ? clientesDe(state.lancamentos)
+      .map(([, nome]) => nome)
+      .filter(nome => semAcento(nome).includes(termo) && semAcento(nome) !== termo)
+      .slice(0, 5)
+    : [];
+  caixa.innerHTML = nomes.map(nome =>
+    `<button type="button" class="sugestao" data-action="usar-cliente" data-nome="${escapeHtml(nome)}">${icon('user')} ${escapeHtml(nome)}</button>`).join('');
 }
 
 // ================= CALENDÁRIO DE PERÍODO =================
@@ -1364,7 +1398,9 @@ async function baixarBackup() {
     Valor: p.valor,
     Motivo: p.motivo || '',
     Situação: STATUS_PEDIDO[p.status][0],
+    'Valor aprovado': p.status === 'aprovado' ? (p.valorAprovado ?? p.valor) : null,
     'Respondido em': dataHora(p.respondidoEm),
+    Resposta: p.resposta || '',
   }));
 
   const marceneiros = [...state.marceneiros].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')).map(m => {
@@ -1388,7 +1424,7 @@ async function baixarBackup() {
 
   const arquivo = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(arquivo, aba(lancamentos, [22, 12, 9, 34, 20, 13, 13, 26, 16, 50], [5, 6]), 'Lançamentos');
-  XLSX.utils.book_append_sheet(arquivo, aba(pedidos, [22, 16, 13, 30, 12, 16], [2]), 'Pedidos');
+  XLSX.utils.book_append_sheet(arquivo, aba(pedidos, [22, 16, 13, 30, 12, 14, 16, 34], [2, 5]), 'Pedidos');
   XLSX.utils.book_append_sheet(arquivo, aba(marceneiros, [22, 30, 14, 14, 14], [2, 3, 4]), 'Marceneiros');
   XLSX.writeFile(arquivo, `Caixa Nô Art - backup ${today()}.xlsx`);
   toast('Planilha baixada. Guarde em um lugar seguro (Google Drive, por exemplo).');
@@ -1396,55 +1432,50 @@ async function baixarBackup() {
 
 // ================= PEDIDOS (admin responde) =================
 
-async function responderPedido(id, aprovar) {
+// Abre a janela de resposta: aprovar (com valor, que pode ser menor) ou recusar, com mensagem opcional
+function abrirResposta(id, aprovar) {
   if (!exigeInternet()) return;
   const p = state.pedidos.find(x => x.id === id);
   const m = marceneiroDe(p.marcId);
-  if (aprovar) {
-    const limite = limiteRetirada(lancamentosDe(m.id), today());
-    if (p.valor > limite + CENTAVO) {
-      fail(`Saldo insuficiente para aprovar. Disponível: ${formatMoney(limite)}.`);
-      return;
-    }
-  }
-  const saldoDepois = resumoConta(lancamentosDe(m.id)).saldo - p.valor;
-  const confirmado = await confirmar({
-    titulo: aprovar ? 'Aprovar retirada' : 'Recusar pedido',
-    corpo: `
-      <div class="detail-amount ${aprovar ? 'neg' : ''}">${formatMoney(p.valor)}</div>
-      ${detalhesHtml([
-        ['Marceneiro', m.nome],
-        ['Motivo', p.motivo || 'Não informado'],
-        ...(aprovar ? [['Data no extrato', `Hoje, ${formatDate(today())}`], ['Saldo depois', formatMoney(saldoDepois)]] : []),
-      ])}
-      <p class="hint">${escapeHtml(firstName(m.nome))} recebe um aviso por e-mail.</p>`,
-    botao: aprovar ? 'Aprovar' : 'Recusar',
-    tom: aprovar ? 'green' : 'red',
+  const limite = limiteRetirada(lancamentosDe(m.id), today());
+  if (aprovar && limite < 0.01) return fail('Saldo insuficiente para aprovar: a conta não tem saldo disponível.');
+
+  const form = $('#dlg-responder form');
+  const ok = $('#responder-ok');
+  $('#responder-titulo').textContent = aprovar ? 'Aprovar retirada' : 'Recusar pedido';
+  $('#responder-resumo').textContent = `${m.nome} pediu ${formatMoney(p.valor)}${p.motivo ? ` · ${p.motivo}` : ''}`;
+  $('#responder-valor-campo').hidden = !aprovar;
+  form.elements.valor.disabled = !aprovar; // desativado, o navegador não exige o valor na recusa
+  $('#responder-disponivel').textContent = `Disponível na conta: ${formatMoney(limite)}. Dá para aprovar um valor menor que o pedido.`;
+  $('#responder-msg-rotulo').textContent = aprovar ? 'Recado para o marceneiro (opcional)' : 'Motivo da recusa (opcional)';
+  ok.textContent = aprovar ? 'Aprovar' : 'Recusar';
+  ok.className = `btn btn-${aprovar ? 'green' : 'red'}`;
+
+  openDialog('dlg-responder', {
+    pedidoId: id,
+    decisao: aprovar ? 'aprovar' : 'recusar',
+    valor: maskMoneyInput(String(Math.round(Math.min(p.valor, limite) * 100))),
   });
-  if (!confirmado) return;
+}
 
-  try {
-    if (aprovar) await Store.aprovarPedido(p, m, today());
-    else await Store.recusarPedido(p);
-  } catch (err) {
-    fail(mensagemErro(err));
-    return;
-  }
-  toast(aprovar ? 'Pedido aprovado e lançado no extrato.' : 'Pedido recusado.');
-
-  await avisar({
+// E-mail e notificação para o marceneiro com a resposta do pedido
+function avisarResposta(p, m, aprovar, valor, resposta) {
+  const parcial = aprovar && valor < p.valor - CENTAVO;
+  const valorTexto = parcial ? `${formatMoney(valor)} (de ${formatMoney(p.valor)} pedidos)` : formatMoney(p.valor);
+  avisar({
     email: {
       para: m.email,
       assunto: `Seu pedido de retirada foi ${aprovar ? 'aprovado' : 'recusado'}`,
       mensagem: `Olá, ${firstName(m.nome)}!\n\n`
-        + `Seu pedido de retirada de ${formatMoney(p.valor)} foi ${aprovar ? 'APROVADO' : 'RECUSADO'}.\n`
-        + (aprovar ? 'O valor já aparece no seu extrato.\n' : 'Em caso de dúvida, fale com o administrador.\n')
+        + `Seu pedido de retirada foi ${aprovar ? 'APROVADO' : 'RECUSADO'}: ${valorTexto}.\n`
+        + (resposta ? `Mensagem do administrador: ${resposta}\n` : '')
+        + (aprovar ? 'O valor já aparece no seu extrato.\n' : '')
         + `\nVer no app: ${SITE_URL}`,
     },
     push: {
       para: m.uid,
-      titulo: `Pedido ${aprovar ? 'aprovado ✅' : 'recusado'}`,
-      corpo: `Sua retirada de ${formatMoney(p.valor)} foi ${aprovar ? 'aprovada e já está no extrato' : 'recusada'}.`,
+      titulo: aprovar ? 'Pedido aprovado ✅' : 'Pedido recusado',
+      corpo: `Retirada ${aprovar ? 'aprovada' : 'recusada'}: ${valorTexto}.${resposta ? ` ${resposta}` : ''}`,
     },
   });
 }
@@ -1463,6 +1494,12 @@ const actions = {
     Store.logout();
   },
   'ativar-push': async () => {
+    if (ehIphone && !appInstalado) {
+      return fail('No iPhone, primeiro instale o app: Compartilhar ⬆ → "Adicionar à Tela de Início". Depois abra por lá.');
+    }
+    if (Notification.permission === 'denied') {
+      return fail('Os avisos estão bloqueados neste navegador. Toque no cadeado ao lado do endereço e libere as notificações.');
+    }
     if (!exigeInternet()) return;
     const permissao = await Notification.requestPermission();
     if (permissao !== 'granted') {
@@ -1524,6 +1561,11 @@ const actions = {
     render();
   },
   'abrir-clientes': abrirClientes,
+  'usar-cliente': el => {
+    const campo = el.closest('.field').querySelector('input[name="cliente"]');
+    campo.value = el.dataset.nome;
+    el.parentElement.innerHTML = '';
+  },
   'escolher-cliente': el => {
     $('#dlg-cliente').close();
     state.filtro = { ...state.filtro, cliente: el.dataset.cliente };
@@ -1582,8 +1624,8 @@ const actions = {
     openDialog('dlg-pedido');
   },
   'ver-lancamento': el => openLancamento(el.dataset.id),
-  'aprovar-pedido': el => responderPedido(el.dataset.id, true),
-  'recusar-pedido': el => responderPedido(el.dataset.id, false),
+  'aprovar-pedido': el => abrirResposta(el.dataset.id, true),
+  'recusar-pedido': el => abrirResposta(el.dataset.id, false),
 
   'delete-marceneiro': async el => {
     if (!exigeInternet()) return;
@@ -1679,6 +1721,28 @@ const actions = {
 // Cada função recebe os campos do formulário. Retornar false mantém a janela aberta.
 
 const forms = {
+  async responderPedido(f) {
+    const p = state.pedidos.find(x => x.id === f.pedidoId.value);
+    const m = marceneiroDe(p.marcId);
+    const aprovar = f.decisao.value === 'aprovar';
+    const resposta = f.resposta.value.trim();
+    let valor = p.valor;
+
+    if (aprovar) {
+      valor = parseMoney(f.valor.value);
+      if (!(valor > 0)) return fail('Informe o valor aprovado.');
+      if (valor > p.valor + CENTAVO) return fail(`O valor aprovado não pode passar do pedido (${formatMoney(p.valor)}).`);
+      const limite = limiteRetirada(lancamentosDe(m.id), today());
+      if (valor > limite + CENTAVO) return fail(`Saldo insuficiente. Disponível: ${formatMoney(limite)}.`);
+      await Store.aprovarPedido(p, m, today(), { valor, resposta });
+      toast('Pedido aprovado e lançado no extrato.');
+    } else {
+      await Store.recusarPedido(p, resposta);
+      toast('Pedido recusado.');
+    }
+    avisarResposta(p, m, aprovar, valor, resposta);
+  },
+
   async login(f) {
     await Store.login(f.email.value, f.senha.value);
   },
@@ -1820,6 +1884,7 @@ document.addEventListener('input', e => {
   if (e.target.matches('[data-money]')) e.target.value = maskMoneyInput(e.target.value);
   if (e.target.form?.id === 'form-parcelado') updateParceladoPreview();
   if (e.target.matches('[data-busca-cliente]')) renderListaClientes(e.target.value);
+  if (e.target.name === 'cliente' && e.target.form) sugerirClientes(e.target);
   if (e.target.matches('[data-busca-extrato]')) {
     state.busca = e.target.value;
     $('#extrato-conteudo').innerHTML = extratoConteudo(contaAtual());

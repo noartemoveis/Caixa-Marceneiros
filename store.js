@@ -8,7 +8,7 @@
      marceneiros/{id}  → { nome, email, uid, criadoEm }
      lancamentos/{id}  → { marcId, uid, tipo, data, desc, cliente, valor, criadoEm,
                            estornado?, estornadoEm?, estornoDe?, cancelado?, canceladoEm?, alteracoes? }
-     pedidos/{id}      → { marcId, uid, valor, motivo, status, criadoEm, respondidoEm }
+     pedidos/{id}      → { marcId, uid, valor, motivo, status, criadoEm, respondidoEm, valorAprovado?, resposta? }
      dispositivos/{código do aparelho} → { uid, papel, atualizadoEm }  (quem recebe notificações)
    O campo "uid" liga cada registro ao login do marceneiro (usado nas regras de segurança).
    ========================================================= */
@@ -230,26 +230,28 @@ export const criarPedido = (marceneiro, { valor, motivo }) =>
 
 // Responde o pedido só se ele ainda estiver aguardando
 // (evita lançar duas vezes com clique duplo ou dois aparelhos ao mesmo tempo)
-async function responder(pedido, status, extra) {
+// "resposta" é a mensagem do administrador (motivo da recusa ou recado na aprovação)
+async function responder(pedido, status, campos, extra) {
   const ref = doc(db, 'pedidos', pedido.id);
   await runTransaction(db, async tx => {
     const atual = await tx.get(ref);
     if (atual.data()?.status !== 'pendente') throw new Error('Esse pedido já foi respondido.');
-    tx.update(ref, { status, respondidoEm: serverTimestamp() });
+    tx.update(ref, { status, respondidoEm: serverTimestamp(), ...campos });
     extra?.(tx);
   });
 }
 
-// Aprovar gera a retirada no extrato, tudo de uma vez
-export const aprovarPedido = (pedido, marceneiro, data) =>
-  responder(pedido, 'aprovado', tx => tx.set(doc(collection(db, 'lancamentos')), dadosLancamento(marceneiro, {
-    tipo: 'debito',
-    data,
-    desc: pedido.motivo ? `Retirada pedida - ${pedido.motivo}` : 'Retirada pedida',
-    valor: pedido.valor,
-  })));
+// Aprovar gera a retirada no extrato, tudo de uma vez. O valor pode ser menor que o pedido.
+export const aprovarPedido = (pedido, marceneiro, data, { valor, resposta = '' }) =>
+  responder(pedido, 'aprovado', { valorAprovado: roundCents(valor), resposta },
+    tx => tx.set(doc(collection(db, 'lancamentos')), dadosLancamento(marceneiro, {
+      tipo: 'debito',
+      data,
+      desc: pedido.motivo ? `Retirada pedida - ${pedido.motivo}` : 'Retirada pedida',
+      valor,
+    })));
 
-export const recusarPedido = pedido => responder(pedido, 'recusado');
+export const recusarPedido = (pedido, resposta = '') => responder(pedido, 'recusado', { resposta });
 
 // ---------- Avisos (e-mail e notificação no celular) ----------
 // Quem envia é o script do Google, que confere quem está pedindo o envio:

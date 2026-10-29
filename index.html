@@ -103,6 +103,7 @@
       <label class="field">
         <span>Cliente (opcional)</span>
         <input name="cliente" autocomplete="off" placeholder="Ex: João da Silva">
+        <div class="sugestoes" data-sugestoes-cliente></div>
       </label>
       <div class="field">
         <span>Liberação do valor</span>
@@ -199,6 +200,38 @@
       <div class="sheet-actions">
         <button type="button" class="btn btn-ghost" data-action="close">Cancelar</button>
         <button class="btn btn-amber">Gerar parcelas</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Responder pedido de retirada: aprovar (com valor) ou recusar, com mensagem -->
+  <dialog id="dlg-responder">
+    <form class="sheet" data-form="responderPedido">
+      <div class="sheet-head">
+        <div>
+          <h3 id="responder-titulo">Aprovar retirada</h3>
+          <p class="hint" id="responder-resumo"></p>
+        </div>
+        <button type="button" class="icon-btn sm" data-action="close" aria-label="Fechar">✕</button>
+      </div>
+      <input type="hidden" name="pedidoId">
+      <input type="hidden" name="decisao">
+      <label class="field" id="responder-valor-campo">
+        <span>Valor aprovado</span>
+        <div class="money-field tone-red">
+          <span>R$</span>
+          <input name="valor" data-money inputmode="numeric" required placeholder="0,00" autocomplete="off">
+        </div>
+        <small class="hint" id="responder-disponivel"></small>
+      </label>
+      <label class="field">
+        <span id="responder-msg-rotulo">Recado para o marceneiro (opcional)</span>
+        <input name="resposta" maxlength="200" autocomplete="off" placeholder="Ex: o restante fica para sexta">
+      </label>
+      <p class="hint">O marceneiro recebe a resposta no app, por notificação e por e-mail.</p>
+      <div class="sheet-actions">
+        <button type="button" class="btn btn-ghost" data-action="close">Cancelar</button>
+        <button class="btn btn-green" id="responder-ok">Aprovar</button>
       </div>
     </form>
   </dialog>
@@ -319,6 +352,7 @@
       <label class="field" id="editar-lanc-cliente">
         <span>Cliente (opcional)</span>
         <input name="cliente" autocomplete="off">
+        <div class="sugestoes" data-sugestoes-cliente></div>
       </label>
       <label class="field">
         <span>Data</span>

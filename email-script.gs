@@ -3,7 +3,8 @@
    Este arquivo NÃO roda no site: o conteúdo fica em script.google.com,
    publicado como "App da Web" (projeto "Caixa Marceneiros - Avisos").
 
-   Manda e-mail e notificação no celular. Não usa nenhuma chave secreta:
+   Manda e-mail e notificação no celular, e faz o backup semanal no Drive.
+   Não usa nenhuma chave secreta:
    o script age com a permissão da conta Google dona do projeto Firebase.
 
    Segurança: o script confere no Firebase quem está pedindo o envio.
@@ -124,42 +125,130 @@ function enviarNotificacao(alvo, titulo, corpo) {
   if (erros.length) throw new Error(erros.join(' | '));
 }
 
-// ---------- Aviso diário (roda sozinho todo dia às 8h) ----------
-// Avisa o marceneiro quando um valor agendado chega na data: serviço liberado ou parcela descontada.
-
-function avisarAgendadosDeHoje() {
-  const hoje = Utilities.formatDate(new Date(), FUSO, 'yyyy-MM-dd');
-  buscar('lancamentos', 'data', hoje).forEach(d => {
-    const f = d.fields || {};
-    // O Firestore devolve cada campo como { stringValue }, { booleanValue }, { doubleValue }...
-    const lido = campo => {
-      const v = f[campo];
-      if (!v) return undefined;
-      if ('stringValue' in v) return v.stringValue;
-      if ('booleanValue' in v) return v.booleanValue;
-      return Number(v.doubleValue || v.integerValue);
-    };
-    if (lido('cancelado') || lido('estornado') || lido('estornoDe')) return;
-    // Lançado hoje mesmo não era agendado: o marceneiro já foi avisado na hora
-    const criado = f.criadoEm && Utilities.formatDate(new Date(f.criadoEm.timestampValue), FUSO, 'yyyy-MM-dd');
-    if (!criado || criado >= hoje) return;
-
-    const credito = lido('tipo') === 'credito';
-    enviarNotificacao(lido('uid'),
-      credito ? 'Valor liberado hoje' : 'Desconto agendado para hoje',
-      lido('desc') + ' · ' + (credito ? '+ ' : '− ') + dinheiro(lido('valor')));
+// O Firestore devolve cada campo como { stringValue }, { booleanValue }, { doubleValue }...
+// Aqui vira um objeto comum: { id, nome, valor, criadoEm (data) ... }
+function comoObjeto(documento) {
+  const objeto = { id: documento.name.split('/').pop() };
+  const campos = documento.fields || {};
+  Object.keys(campos).forEach(chave => {
+    const v = campos[chave];
+    if ('stringValue' in v) objeto[chave] = v.stringValue;
+    else if ('booleanValue' in v) objeto[chave] = v.booleanValue;
+    else if ('integerValue' in v) objeto[chave] = Number(v.integerValue);
+    else if ('doubleValue' in v) objeto[chave] = Number(v.doubleValue);
+    else if ('timestampValue' in v) objeto[chave] = new Date(v.timestampValue);
   });
+  return objeto;
 }
+
+// Todos os documentos de uma coleção (de 300 em 300)
+function listar(colecao) {
+  let documentos = [];
+  let pagina = '';
+  do {
+    const r = googleApi(FIRESTORE + '/' + colecao + '?pageSize=300' + (pagina ? '&pageToken=' + pagina : ''), null, 'get');
+    if (r.codigo !== 200) throw new Error('Firestore ' + r.codigo + ': ' + r.texto);
+    const resposta = JSON.parse(r.texto);
+    documentos = documentos.concat(resposta.documents || []);
+    pagina = resposta.nextPageToken || '';
+  } while (pagina);
+  return documentos.map(comoObjeto);
+}
+
+const hojeISO = () => Utilities.formatDate(new Date(), FUSO, 'yyyy-MM-dd');
+const diaDe = data => Utilities.formatDate(data, FUSO, 'yyyy-MM-dd');
 
 function dinheiro(valor) {
   const [inteiro, centavos] = Number(valor).toFixed(2).split('.');
   return 'R$ ' + inteiro.replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ',' + centavos;
 }
 
-// Rode esta função UMA vez pelo editor para ligar o aviso diário das 8h
-function instalarAvisoDiario() {
-  ScriptApp.getProjectTriggers()
-    .filter(t => t.getHandlerFunction() === 'avisarAgendadosDeHoje')
-    .forEach(t => ScriptApp.deleteTrigger(t));
+// ---------- Aviso diário (roda sozinho todo dia às 8h) ----------
+// Avisa o marceneiro quando um valor agendado chega na data: serviço liberado ou parcela descontada.
+
+function avisarAgendadosDeHoje() {
+  const hoje = hojeISO();
+  buscar('lancamentos', 'data', hoje).map(comoObjeto).forEach(l => {
+    if (l.cancelado || l.estornado || l.estornoDe) return;
+    // Lançado hoje mesmo não era agendado: o marceneiro já foi avisado na hora
+    if (!l.criadoEm || diaDe(l.criadoEm) >= hoje) return;
+
+    const credito = l.tipo === 'credito';
+    enviarNotificacao(l.uid,
+      credito ? 'Valor liberado hoje' : 'Desconto agendado para hoje',
+      l.desc + ' · ' + (credito ? '+ ' : '− ') + dinheiro(l.valor));
+  });
+}
+
+// ---------- Backup semanal no Google Drive (toda segunda às 7h) ----------
+// Cria uma planilha com tudo na pasta "Caixa Nô Art - Backups" do Drive.
+
+const PASTA_BACKUP = 'Caixa Nô Art - Backups';
+
+function fazerBackup() {
+  const hoje = hojeISO();
+  const marceneiros = listar('marceneiros').sort((a, b) => a.nome.localeCompare(b.nome));
+  const lancamentos = listar('lancamentos').sort((a, b) => (a.data > b.data ? 1 : a.data < b.data ? -1 : 0));
+  const pedidos = listar('pedidos').sort((a, b) => (a.criadoEm || 0) - (b.criadoEm || 0));
+
+  const nomeDe = {};
+  marceneiros.forEach(m => { nomeDe[m.id] = m.nome; });
+  const marceneiro = id => nomeDe[id] || '(conta excluída)';
+  const quando = data => (data ? Utilities.formatDate(data, FUSO, 'dd/MM/yyyy HH:mm') : '');
+  const dataBR = iso => (iso ? iso.split('-').reverse().join('/') : '');
+  const situacao = l => (l.cancelado ? 'Cancelado' : l.estornado ? 'Estornado' : l.estornoDe ? 'Estorno' : l.data > hoje ? 'Agendado' : 'Normal');
+  const STATUS = { pendente: 'Aguardando', aprovado: 'Aprovado', recusado: 'Recusado' };
+
+  // Saldo de hoje: o que já aconteceu, sem os agendados cancelados
+  const saldoDe = id => lancamentos
+    .filter(l => l.marcId === id && !l.cancelado && l.data <= hoje)
+    .reduce((s, l) => s + (l.tipo === 'credito' ? l.valor : -l.valor), 0);
+
+  const planilha = SpreadsheetApp.create('Caixa Nô Art - backup ' + hoje);
+  const primeira = planilha.getSheets()[0].setName('Lançamentos');
+
+  escreverAba(primeira,
+    ['Marceneiro', 'Data', 'Tipo', 'Descrição', 'Cliente', 'Entrada', 'Saída', 'Situação', 'Lançado em'],
+    lancamentos.map(l => [marceneiro(l.marcId), dataBR(l.data), l.tipo === 'credito' ? 'Entrada' : 'Saída', l.desc,
+      l.cliente || '', l.tipo === 'credito' ? l.valor : '', l.tipo === 'debito' ? l.valor : '', situacao(l), quando(l.criadoEm)]),
+    [6, 7]);
+
+  escreverAba(planilha.insertSheet('Pedidos'),
+    ['Marceneiro', 'Pedido em', 'Valor', 'Motivo', 'Situação', 'Valor aprovado', 'Respondido em', 'Resposta'],
+    pedidos.map(p => [marceneiro(p.marcId), quando(p.criadoEm), p.valor, p.motivo || '', STATUS[p.status] || p.status,
+      p.status === 'aprovado' ? (p.valorAprovado || p.valor) : '', quando(p.respondidoEm), p.resposta || '']),
+    [3, 6]);
+
+  escreverAba(planilha.insertSheet('Marceneiros'),
+    ['Nome', 'E-mail', 'Saldo atual'],
+    marceneiros.map(m => [m.nome, m.email, saldoDe(m.id)]),
+    [3]);
+
+  DriveApp.getFileById(planilha.getId()).moveTo(pastaDeBackup());
+  return planilha.getUrl();
+}
+
+function escreverAba(aba, cabecalho, linhas, colunasDinheiro) {
+  aba.getRange(1, 1, 1, cabecalho.length).setValues([cabecalho])
+    .setFontWeight('bold').setBackground('#A0522D').setFontColor('#FFFFFF');
+  if (linhas.length) {
+    aba.getRange(2, 1, linhas.length, cabecalho.length).setValues(linhas);
+    colunasDinheiro.forEach(c => aba.getRange(2, c, linhas.length, 1).setNumberFormat('"R$" #,##0.00'));
+  }
+  aba.setFrozenRows(1);
+  aba.autoResizeColumns(1, cabecalho.length);
+}
+
+function pastaDeBackup() {
+  const pastas = DriveApp.getFoldersByName(PASTA_BACKUP);
+  return pastas.hasNext() ? pastas.next() : DriveApp.createFolder(PASTA_BACKUP);
+}
+
+// ---------- Rotinas automáticas ----------
+// Rode esta função UMA vez pelo editor: liga o aviso diário (8h) e o backup semanal (segunda, 7h)
+function instalarRotinas() {
+  ScriptApp.getProjectTriggers().forEach(t => ScriptApp.deleteTrigger(t));
   ScriptApp.newTrigger('avisarAgendadosDeHoje').timeBased().atHour(8).everyDays(1).inTimezone(FUSO).create();
+  ScriptApp.newTrigger('fazerBackup').timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(7).inTimezone(FUSO).create();
+  fazerBackup(); // já deixa o primeiro backup pronto
 }
