@@ -288,6 +288,44 @@
     </div>
   </dialog>
 
+  <!-- ==================== EDITAR LANÇAMENTO (admin) ==================== -->
+
+  <dialog id="dlg-editar-lancamento">
+    <form class="sheet" data-form="editarLancamento">
+      <div class="sheet-head">
+        <div>
+          <h3>Editar lançamento</h3>
+          <p class="hint">Fica registrado no comprovante como era antes.</p>
+        </div>
+        <button type="button" class="icon-btn sm" data-action="close" aria-label="Fechar">✕</button>
+      </div>
+      <input type="hidden" name="lancId">
+      <label class="field">
+        <span>Valor</span>
+        <div class="money-field">
+          <span>R$</span>
+          <input name="valor" data-money inputmode="numeric" required placeholder="0,00" autocomplete="off">
+        </div>
+      </label>
+      <label class="field">
+        <span>Descrição</span>
+        <input name="desc" required autocomplete="off">
+      </label>
+      <label class="field" id="editar-lanc-cliente">
+        <span>Cliente (opcional)</span>
+        <input name="cliente" autocomplete="off">
+      </label>
+      <label class="field">
+        <span>Data</span>
+        <input type="date" name="data" required>
+      </label>
+      <div class="sheet-actions">
+        <button type="button" class="btn btn-ghost" data-action="close">Cancelar</button>
+        <button class="btn btn-primary">Salvar alteração</button>
+      </div>
+    </form>
+  </dialog>
+
   <!-- ==================== COMPROVANTE (todos) ==================== -->
 
   <dialog id="dlg-lancamento">

@@ -6,7 +6,8 @@
 
    Coleções no Firestore:
      marceneiros/{id}  → { nome, email, uid, criadoEm }
-     lancamentos/{id}  → { marcId, uid, tipo, data, desc, cliente, valor, criadoEm }
+     lancamentos/{id}  → { marcId, uid, tipo, data, desc, cliente, valor, criadoEm,
+                           estornado?, estornadoEm?, estornoDe?, cancelado?, canceladoEm?, alteracoes? }
      pedidos/{id}      → { marcId, uid, valor, motivo, status, criadoEm, respondidoEm }
    O campo "uid" liga cada registro ao login do marceneiro (usado nas regras de segurança).
    ========================================================= */
@@ -18,7 +19,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import {
   getFirestore, collection, doc, query, where, onSnapshot, getDocs,
-  addDoc, updateDoc, deleteDoc, writeBatch, runTransaction, serverTimestamp,
+  addDoc, updateDoc, deleteDoc, writeBatch, runTransaction, serverTimestamp, arrayUnion,
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 import { firebaseConfig, ADMIN_EMAIL, EMAIL_WEBHOOK_URL } from './firebase-config.js';
 
@@ -166,7 +167,37 @@ export async function addParcelado(marceneiro, { desc, total, parcelas, dataInic
   await batch.commit();
 }
 
-export const removeLancamento = id => deleteDoc(doc(db, 'lancamentos', id));
+// Lançamentos nunca são apagados (só a conta inteira, ao excluir o marceneiro).
+// Erros se corrigem como num banco: estorno, cancelamento de agendado ou edição com histórico.
+
+// Estorno: o original fica no extrato marcado como estornado e entra um lançamento contrário
+export async function estornarLancamento(lancamento, marceneiro, data) {
+  const batch = writeBatch(db);
+  batch.update(doc(db, 'lancamentos', lancamento.id), { estornado: true, estornadoEm: serverTimestamp() });
+  batch.set(doc(collection(db, 'lancamentos')), {
+    ...dadosLancamento(marceneiro, {
+      tipo: lancamento.tipo === 'credito' ? 'debito' : 'credito',
+      data,
+      desc: `Estorno - ${lancamento.desc}`,
+      valor: lancamento.valor,
+    }),
+    estornoDe: lancamento.id,
+  });
+  await batch.commit();
+}
+
+// Agendado que ainda não aconteceu: sai das contas, mas o registro continua no banco
+export const cancelarAgendado = id =>
+  updateDoc(doc(db, 'lancamentos', id), { cancelado: true, canceladoEm: serverTimestamp() });
+
+// Edição guarda como era antes, para ficar registrado no comprovante
+export function editarLancamento(lancamento, { valor, desc, cliente, data }) {
+  const antes = { valor: lancamento.valor, desc: lancamento.desc, cliente: lancamento.cliente || '', data: lancamento.data };
+  return updateDoc(doc(db, 'lancamentos', lancamento.id), {
+    valor: roundCents(valor), desc, cliente, data,
+    alteracoes: arrayUnion({ em: new Date().toISOString(), antes }),
+  });
+}
 
 // ---------- Pedidos de retirada ----------
 

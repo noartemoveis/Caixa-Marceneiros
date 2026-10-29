@@ -155,6 +155,7 @@ const ICONS = {
   user: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
   search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>',
   check: '<path d="M20 6 9 17l-5-5"/>',
+  download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>',
 };
 
 const icon = name =>
@@ -185,7 +186,8 @@ const isAdmin = () => state.user?.role === 'admin';
 const carregado = () => state.carregados.size === COLECOES.length;
 const contaAtual = () => state.marceneiros.find(m => m.id === state.contaId);
 const marceneiroDe = marcId => state.marceneiros.find(m => m.id === marcId);
-const lancamentosDe = marcId => state.lancamentos.filter(l => l.marcId === marcId);
+// Agendados cancelados não entram em nada (continuam só no banco e no backup)
+const lancamentosDe = marcId => state.lancamentos.filter(l => l.marcId === marcId && !l.cancelado);
 const pedidosPendentes = () => state.pedidos.filter(p => p.status === 'pendente');
 
 // ================= CÁLCULOS =================
@@ -210,11 +212,20 @@ function limiteRetirada(lancamentos, data) {
   return Math.max(0, Math.round(menor * 100) / 100);
 }
 
+// O saldo fica negativo em algum dia, a partir de "desde"?
+const negativoDesde = (lancamentos, desde) =>
+  [...saldosDiarios(lancamentos)].some(([dia, saldo]) => dia >= desde && saldo < -CENTAVO);
+
 // Verifica se, somando os novos lançamentos, o saldo fica negativo em algum dia
 function ficariaNegativo(lancamentos, novos) {
-  const desde = novos.map(l => l.data).sort()[0];
-  return [...saldosDiarios([...lancamentos, ...novos])]
-    .some(([dia, saldo]) => dia >= desde && saldo < -CENTAVO);
+  return negativoDesde([...lancamentos, ...novos], novos.map(l => l.data).sort()[0]);
+}
+
+// Mesma verificação trocando (ou tirando) um lançamento existente
+function ficariaNegativoTrocando(lancamentos, original, novo = null) {
+  const lista = lancamentos.filter(l => l.id !== original.id).concat(novo ? [novo] : []);
+  const desde = novo && novo.data < original.data ? novo.data : original.data;
+  return negativoDesde(lista, desde);
 }
 
 // O marceneiro só pode pedir o que sobra depois dos pedidos que ainda aguardam resposta
@@ -442,7 +453,15 @@ function viewAdmin() {
       <h2>Contas</h2>
       <button class="btn btn-primary btn-sm" data-action="new-marceneiro">${icon('plus')} Novo marceneiro</button>
     </div>
-    ${lista}`;
+    ${lista}
+
+    <section class="backup">
+      <div>
+        <strong>Backup</strong>
+        <small>Planilha Excel com todos os lançamentos, pedidos e saldos.</small>
+      </div>
+      <button class="btn btn-ghost btn-sm" data-action="baixar-backup">${icon('download')} Baixar planilha</button>
+    </section>`;
 }
 
 function viewContaIndisponivel() {
@@ -487,8 +506,8 @@ function viewConta() {
       ${icon('chevronDown')}
     </button>` : '';
 
-  // Com cliente escolhido, o resumo vira o total de serviços dele no período
-  const servicosCliente = cliente ? doPeriodo.filter(filtrar) : [];
+  // Com cliente escolhido, o resumo vira o total de serviços dele no período (sem os estornados)
+  const servicosCliente = cliente ? doPeriodo.filter(l => filtrar(l) && !l.estornado) : [];
   const resumo = cliente ? `
     <div class="period-summary period-summary-1">
       <div>
@@ -655,8 +674,11 @@ function lancamentoHtml(l) {
   const credito = l.tipo === 'credito';
   let detalhe = credito ? (l.cliente ? `Cliente: ${l.cliente}` : 'Serviço') : 'Retirada';
   if (l.data > today()) detalhe = `${credito ? 'Libera' : 'Desconta'} em ${formatDate(l.data)}`;
+  if (l.estornoDe) detalhe = 'Estorno';
+  if (l.estornado) detalhe = `Estornado em ${formatMomento(l.estornadoEm)}`;
+  const classes = ['tx', l.data > today() && 'tx-future', l.estornado && 'tx-estornado'].filter(Boolean).join(' ');
   return `
-    <button class="tx${l.data > today() ? ' tx-future' : ''}" data-action="ver-lancamento" data-id="${l.id}">
+    <button class="${classes}" data-action="ver-lancamento" data-id="${l.id}">
       <span class="tx-icon ${credito ? 'in' : 'out'}">${icon(credito ? 'arrowUp' : 'arrowDown')}</span>
       <span class="tx-info">
         <strong>${escapeHtml(l.desc)}</strong>
@@ -779,25 +801,63 @@ function atualizarAgendaServico(form) {
   if (agendar && campo.value <= today()) campo.value = addDays(today(), 1);
 }
 
+// Como era antes de cada edição, para o comprovante
+const resumoVersao = v =>
+  [formatMoney(v.valor), v.desc, v.cliente && `Cliente: ${v.cliente}`, formatDate(v.data)].filter(Boolean).join(' · ');
+
 function openLancamento(id) {
   const m = contaAtual();
   const l = state.lancamentos.find(x => x.id === id);
   const credito = l.tipo === 'credito';
   const futuro = l.data > today();
+  const original = l.estornoDe && state.lancamentos.find(x => x.id === l.estornoDe);
+
+  const situacao = [
+    ...(l.estornado ? [['Situação', `Estornado em ${formatMomento(l.estornadoEm)}`]] : []),
+    ...(original ? [['Estorno de', `${original.desc} (${formatDate(original.data)})`]] : []),
+  ];
+
+  const historico = (l.alteracoes ?? []).map(a => `
+    <li><b>Alterado em ${formatMomento({ toDate: () => new Date(a.em) })}</b><br>Antes: ${escapeHtml(resumoVersao(a.antes))}</li>`).join('');
+
+  // Estornado e o próprio estorno não mudam mais; agendado se cancela em vez de estornar
+  const podeMexer = isAdmin() && !l.estornado && !l.estornoDe;
+  const botoes = podeMexer ? `
+    <div class="sheet-actions">
+      <button class="btn btn-ghost" data-action="editar-lancamento" data-id="${l.id}">${icon('edit')} Editar</button>
+      ${futuro
+        ? `<button class="btn btn-danger" data-action="cancelar-agendado" data-id="${l.id}">Cancelar agendamento</button>`
+        : `<button class="btn btn-danger" data-action="estornar-lancamento" data-id="${l.id}">Estornar</button>`}
+    </div>` : '';
 
   $('#lancamento-body').innerHTML = `
-    <div class="detail-amount ${credito ? 'pos' : 'neg'}">${credito ? '+' : '−'} ${formatMoney(l.valor)}</div>
-    <p class="detail-type">${credito ? 'Serviço (entrada)' : 'Retirada (saída)'}${futuro ? ' · Agendado' : ''}</p>
+    <div class="detail-amount ${credito ? 'pos' : 'neg'}${l.estornado ? ' riscado' : ''}">${credito ? '+' : '−'} ${formatMoney(l.valor)}</div>
+    <p class="detail-type">${l.estornoDe ? 'Estorno' : credito ? 'Serviço' : 'Retirada'} (${credito ? 'entrada' : 'saída'})${futuro ? ' · Agendado' : ''}</p>
     ${detalhesHtml([
       [credito && futuro ? 'Libera em' : 'Data', formatDate(l.data)],
       ['Lançado em', formatMomento(l.criadoEm)],
       ['Descrição', l.desc],
       ...(l.cliente ? [['Cliente', l.cliente]] : []),
       ['Conta', m.nome],
+      ...situacao,
     ])}
-    ${isAdmin() ? `<button class="btn btn-danger btn-block" data-action="excluir-lancamento" data-id="${l.id}">Excluir lançamento</button>` : ''}`;
+    ${historico ? `<ul class="historico">${historico}</ul>` : ''}
+    ${botoes}`;
 
   $('#dlg-lancamento').showModal();
+}
+
+function openEditarLancamento(id) {
+  const l = state.lancamentos.find(x => x.id === id);
+  $('#dlg-lancamento').close();
+  $('#editar-lanc-cliente').hidden = l.tipo !== 'credito';
+  openDialog('dlg-editar-lancamento', {
+    lancId: l.id,
+    valor: maskMoneyInput(String(Math.round(l.valor * 100))),
+    desc: l.desc,
+    cliente: l.cliente || '',
+    data: l.data,
+  });
 }
 
 function updateParceladoPreview() {
@@ -835,7 +895,7 @@ function renderListaClientes(termo) {
   const clientes = clientesDe(todos)
     .filter(([chave]) => !procura || semAcento(chave).includes(procura))
     .map(([chave, nome]) => {
-      const servicos = todos.filter(l => chaveCliente(l.cliente) === chave);
+      const servicos = todos.filter(l => chaveCliente(l.cliente) === chave && !l.estornado);
       const total = servicos.reduce((s, l) => s + l.valor, 0);
       return item(chave, nome, `${servicos.length} serviço(s) · ${formatMoney(total)}`,
         `<span class="avatar sm">${escapeHtml(initials(nome))}</span>`);
@@ -944,7 +1004,7 @@ function confirmarPeriodo() {
 const TITULO_PDF = { todos: 'Extrato de conta', credito: 'Relatório de entradas', debito: 'Relatório de saídas' };
 
 const descricaoPdf = (l, extra = []) => {
-  const detalhes = [l.cliente && `Cliente: ${l.cliente}`, ...extra].filter(Boolean);
+  const detalhes = [l.cliente && `Cliente: ${l.cliente}`, l.estornado && 'Estornado', ...extra].filter(Boolean);
   return escapeHtml(l.desc) + detalhes.map(d => `<small>${escapeHtml(d)}</small>`).join('');
 };
 
@@ -1076,6 +1136,76 @@ async function imprimirExtrato(m, inicio, fim, tipo, cliente = '') {
   document.title = `${tituloPdf(m, tipo, cliente)} - ${m.nome} - ${inicio} a ${fim}`;
   window.addEventListener('afterprint', () => { document.title = tituloOriginal; }, { once: true });
   window.print();
+}
+
+// ================= BACKUP EM PLANILHA =================
+// Arquivo Excel com tudo: lançamentos (inclusive estornados e cancelados), pedidos e marceneiros.
+// A biblioteca de planilhas só é baixada na hora de gerar o arquivo.
+
+const SHEETJS_URL = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs';
+
+const dataHora = timestamp => (timestamp ? formatMomento(timestamp) : '');
+
+function situacaoLancamento(l) {
+  if (l.cancelado) return `Cancelado em ${dataHora(l.canceladoEm)}`;
+  if (l.estornado) return `Estornado em ${dataHora(l.estornadoEm)}`;
+  if (l.estornoDe) return 'Estorno';
+  if (l.data > today()) return 'Agendado';
+  return 'Normal';
+}
+
+async function baixarBackup() {
+  const XLSX = await import(SHEETJS_URL);
+  const nomeDe = marcId => marceneiroDe(marcId)?.nome ?? '(conta excluída)';
+
+  const lancamentos = [...state.lancamentos].sort(porDataEHora).map(l => ({
+    Marceneiro: nomeDe(l.marcId),
+    Data: formatDate(l.data),
+    Tipo: l.tipo === 'credito' ? 'Entrada' : 'Saída',
+    Descrição: l.desc,
+    Cliente: l.cliente || '',
+    Entrada: l.tipo === 'credito' ? l.valor : null,
+    Saída: l.tipo === 'debito' ? l.valor : null,
+    Situação: situacaoLancamento(l),
+    'Lançado em': dataHora(l.criadoEm),
+    Alterações: (l.alteracoes ?? [])
+      .map(a => `${formatMomento({ toDate: () => new Date(a.em) })}: antes ${resumoVersao(a.antes)}`).join(' | '),
+  }));
+
+  const pedidos = [...state.pedidos].sort(porMaisRecente).map(p => ({
+    Marceneiro: nomeDe(p.marcId),
+    'Pedido em': dataHora(p.criadoEm),
+    Valor: p.valor,
+    Motivo: p.motivo || '',
+    Situação: STATUS_PEDIDO[p.status][0],
+    'Respondido em': dataHora(p.respondidoEm),
+  }));
+
+  const marceneiros = [...state.marceneiros].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')).map(m => {
+    const { saldo, aLiberar, aDescontar } = resumoConta(lancamentosDe(m.id));
+    return { Nome: m.nome, 'E-mail': m.email, 'Saldo atual': saldo, 'A liberar': aLiberar, 'A descontar': aDescontar };
+  });
+
+  const aba = (linhas, larguras, colunasDinheiro) => {
+    const planilha = XLSX.utils.json_to_sheet(linhas);
+    planilha['!cols'] = larguras.map(wch => ({ wch }));
+    // Formato de dinheiro brasileiro nas colunas de valor
+    const fim = XLSX.utils.decode_range(planilha['!ref']).e.r;
+    colunasDinheiro.forEach(col => {
+      for (let r = 1; r <= fim; r++) {
+        const celula = planilha[XLSX.utils.encode_cell({ r, c: col })];
+        if (celula && typeof celula.v === 'number') celula.z = '"R$" #,##0.00';
+      }
+    });
+    return planilha;
+  };
+
+  const arquivo = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(arquivo, aba(lancamentos, [22, 12, 9, 34, 20, 13, 13, 26, 16, 50], [5, 6]), 'Lançamentos');
+  XLSX.utils.book_append_sheet(arquivo, aba(pedidos, [22, 16, 13, 30, 12, 16], [2]), 'Pedidos');
+  XLSX.utils.book_append_sheet(arquivo, aba(marceneiros, [22, 30, 14, 14, 14], [2, 3, 4]), 'Marceneiros');
+  XLSX.writeFile(arquivo, `Caixa Nô Art - backup ${today()}.xlsx`);
+  toast('Planilha baixada. Guarde em um lugar seguro (Google Drive, por exemplo).');
 }
 
 // ================= PEDIDOS (admin responde) =================
@@ -1244,21 +1374,69 @@ const actions = {
       fail(mensagemErro(err));
     }
   },
-  'excluir-lancamento': async el => {
+  'editar-lancamento': el => openEditarLancamento(el.dataset.id),
+
+  // Estorno: o original fica riscado no extrato e entra o lançamento contrário com data de hoje
+  'estornar-lancamento': async el => {
     const l = state.lancamentos.find(x => x.id === el.dataset.id);
+    const m = contaAtual();
     el.closest('dialog').close();
+    // Estornar um serviço tira o dinheiro de volta: precisa ter saldo para isso
+    if (l.tipo === 'credito') {
+      const limite = limiteRetirada(lancamentosDe(m.id), today());
+      if (l.valor > limite + CENTAVO) {
+        return fail(`Saldo insuficiente para estornar este serviço. Disponível: ${formatMoney(limite)}.`);
+      }
+    }
     const confirmado = await confirmar({
-      titulo: 'Excluir lançamento',
-      corpo: `<p>Excluir <b>${escapeHtml(l.desc)}</b> de <b>${formatMoney(l.valor)}</b>? Isso não pode ser desfeito.</p>`,
-      botao: 'Excluir',
+      titulo: 'Estornar lançamento',
+      corpo: `
+        <div class="detail-amount ${l.tipo === 'credito' ? 'neg' : 'pos'}">${l.tipo === 'credito' ? '−' : '+'} ${formatMoney(l.valor)}</div>
+        <p>O lançamento <b>${escapeHtml(l.desc)}</b> fica no extrato marcado como estornado,
+        e entra um estorno com a data de hoje que desfaz o valor.</p>`,
+      botao: 'Estornar',
       tom: 'red',
     });
     if (!confirmado) return;
     try {
-      await Store.removeLancamento(el.dataset.id);
-      toast('Lançamento excluído.');
+      await Store.estornarLancamento(l, m, today());
+      toast('Lançamento estornado.');
     } catch (err) {
       fail(mensagemErro(err));
+    }
+  },
+
+  'cancelar-agendado': async el => {
+    const l = state.lancamentos.find(x => x.id === el.dataset.id);
+    el.closest('dialog').close();
+    if (ficariaNegativoTrocando(lancamentosDe(l.marcId), l)) {
+      return fail('Não dá para cancelar: sem esse valor, o saldo ficaria negativo nas parcelas futuras.');
+    }
+    const confirmado = await confirmar({
+      titulo: 'Cancelar agendamento',
+      corpo: `<p>Cancelar <b>${escapeHtml(l.desc)}</b> de <b>${formatMoney(l.valor)}</b> agendado para
+        ${formatDate(l.data)}? Ele sai dos agendados, mas o registro fica guardado no backup.</p>`,
+      botao: 'Cancelar agendamento',
+      tom: 'red',
+    });
+    if (!confirmado) return;
+    try {
+      await Store.cancelarAgendado(l.id);
+      toast('Agendamento cancelado.');
+    } catch (err) {
+      fail(mensagemErro(err));
+    }
+  },
+
+  'baixar-backup': async el => {
+    el.disabled = true;
+    try {
+      await baixarBackup();
+    } catch (err) {
+      console.error(err);
+      fail('Não foi possível gerar a planilha. Verifique a internet e tente de novo.');
+    } finally {
+      el.disabled = false;
     }
   },
 };
@@ -1296,6 +1474,26 @@ const forms = {
       valor,
     });
     toast(agendado ? `Serviço agendado: o valor libera em ${formatDate(data)}.` : 'Serviço lançado!');
+  },
+
+  // Edição: confere o saldo com o valor novo e guarda como era antes
+  async editarLancamento(f) {
+    const l = state.lancamentos.find(x => x.id === f.lancId.value);
+    const valor = parseMoney(f.valor.value);
+    if (!(valor > 0)) return fail('Informe um valor maior que zero.');
+    const novo = {
+      valor,
+      desc: f.desc.value.trim(),
+      cliente: l.tipo === 'credito' ? f.cliente.value.trim() : '',
+      data: f.data.value,
+    };
+    const mudou = novo.valor !== l.valor || novo.desc !== l.desc || novo.cliente !== (l.cliente || '') || novo.data !== l.data;
+    if (!mudou) return; // nada a salvar: só fecha a janela
+    if (ficariaNegativoTrocando(lancamentosDe(l.marcId), l, { ...l, ...novo })) {
+      return fail('Com essa alteração o saldo ficaria negativo.');
+    }
+    await Store.editarLancamento(l, novo);
+    toast('Lançamento alterado.');
   },
 
   async retirada(f) {
