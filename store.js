@@ -18,7 +18,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import {
   getFirestore, collection, doc, query, where, onSnapshot, getDocs,
-  addDoc, updateDoc, deleteDoc, writeBatch, serverTimestamp,
+  addDoc, updateDoc, deleteDoc, writeBatch, runTransaction, serverTimestamp,
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 import { firebaseConfig, ADMIN_EMAIL, EMAIL_WEBHOOK_URL } from './firebase-config.js';
 
@@ -79,7 +79,8 @@ async function emLotes(docs, aplicar) {
 function escutar(nome, user, callback, onError) {
   const ref = collection(db, nome);
   const q = user.role === 'admin' ? ref : query(ref, where('uid', '==', user.uid));
-  return onSnapshot(q, snap => callback(snap.docs.map(d => ({ id: d.id, ...d.data() }))), onError);
+  // "estimate": logo após salvar, usa a hora do aparelho até o servidor confirmar (mantém a ordem certa)
+  return onSnapshot(q, snap => callback(snap.docs.map(d => ({ id: d.id, ...d.data({ serverTimestamps: 'estimate' }) }))), onError);
 }
 
 // ---------- Login ----------
@@ -180,21 +181,28 @@ export const criarPedido = (marceneiro, { valor, motivo }) =>
     criadoEm: serverTimestamp(),
   });
 
+// Responde o pedido só se ele ainda estiver aguardando
+// (evita lançar duas vezes com clique duplo ou dois aparelhos ao mesmo tempo)
+async function responder(pedido, status, extra) {
+  const ref = doc(db, 'pedidos', pedido.id);
+  await runTransaction(db, async tx => {
+    const atual = await tx.get(ref);
+    if (atual.data()?.status !== 'pendente') throw new Error('Esse pedido já foi respondido.');
+    tx.update(ref, { status, respondidoEm: serverTimestamp() });
+    extra?.(tx);
+  });
+}
+
 // Aprovar gera a retirada no extrato, tudo de uma vez
-export async function aprovarPedido(pedido, marceneiro, data) {
-  const batch = writeBatch(db);
-  batch.update(doc(db, 'pedidos', pedido.id), { status: 'aprovado', respondidoEm: serverTimestamp() });
-  batch.set(doc(collection(db, 'lancamentos')), dadosLancamento(marceneiro, {
+export const aprovarPedido = (pedido, marceneiro, data) =>
+  responder(pedido, 'aprovado', tx => tx.set(doc(collection(db, 'lancamentos')), dadosLancamento(marceneiro, {
     tipo: 'debito',
     data,
     desc: pedido.motivo ? `Retirada pedida - ${pedido.motivo}` : 'Retirada pedida',
     valor: pedido.valor,
-  }));
-  await batch.commit();
-}
+  })));
 
-export const recusarPedido = pedido =>
-  updateDoc(doc(db, 'pedidos', pedido.id), { status: 'recusado', respondidoEm: serverTimestamp() });
+export const recusarPedido = pedido => responder(pedido, 'recusado');
 
 // ---------- Avisos por e-mail ----------
 // O script do Google confere quem está enviando:

@@ -65,11 +65,15 @@ function formatDayHeader(iso) {
   if (iso === addDays(hoje, 1)) return 'Amanhã';
   const options = { weekday: 'short', day: '2-digit', month: 'short' };
   if (iso.slice(0, 4) !== hoje.slice(0, 4)) options.year = 'numeric';
-  return fromIso(iso).toLocaleDateString('pt-BR', options);
+  const texto = fromIso(iso).toLocaleDateString('pt-BR', options); // "seg., 19 de out."
+  return texto[0].toUpperCase() + texto.slice(1);
 }
 
 // Data/hora de um registro do Firestore (fica vazio por um instante enquanto salva)
 const momento = timestamp => timestamp?.toDate?.() ?? new Date();
+
+// Ordem cronológica: pela data e, no mesmo dia, pela hora em que foi lançado
+const porDataEHora = (a, b) => a.data.localeCompare(b.data) || momento(a.criadoEm) - momento(b.criadoEm);
 const formatMomento = timestamp =>
   momento(timestamp).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 
@@ -87,7 +91,8 @@ function escapeHtml(text) {
   return String(text ?? '').replace(/[&<>"']/g, c => map[c]);
 }
 
-const initials = nome => nome.trim().split(/\s+/).map(p => p[0]).slice(0, 2).join('').toUpperCase();
+// Só palavras que começam com letra ("Luís - teste" vira "LT", não "L-")
+const initials = nome => nome.trim().split(/\s+/).filter(p => /\p{L}/u.test(p[0])).map(p => p[0]).slice(0, 2).join('').toUpperCase();
 const firstName = nome => nome.trim().split(/\s+/)[0];
 
 const mensagemErro = err => ERROS[err?.code] || (err?.code ? 'Algo deu errado. Tente de novo.' : err?.message);
@@ -236,12 +241,10 @@ function resumoConta(lancamentos) {
 function saldosDiarios(lancamentos) {
   const porDia = new Map();
   let saldo = 0;
-  [...lancamentos]
-    .sort((a, b) => a.data.localeCompare(b.data))
-    .forEach(l => {
-      saldo += sinal(l) * l.valor;
-      porDia.set(l.data, saldo);
-    });
+  [...lancamentos].sort(porData).forEach(l => {
+    saldo += sinal(l) * l.valor;
+    porDia.set(l.data, saldo);
+  });
   return porDia;
 }
 
@@ -438,7 +441,7 @@ function viewConta() {
   // Agendados (data futura) aparecem sempre, à parte, e não entram nos totais
   const hoje = today();
   const doTipo = l => tipo === 'todos' || l.tipo === tipo;
-  const futuros = todos.filter(l => l.data > hoje && doTipo(l)).sort(porData);
+  const futuros = todos.filter(l => l.data > hoje && doTipo(l)).sort(porDataEHora);
   const doPeriodo = todos.filter(l => l.data <= hoje && (!inicio || l.data >= inicio) && (!fim || l.data <= fim));
   const entradas = doPeriodo.filter(l => l.tipo === 'credito').reduce((s, l) => s + l.valor, 0);
   const saidas = doPeriodo.filter(l => l.tipo === 'debito').reduce((s, l) => s + l.valor, 0);
@@ -573,7 +576,7 @@ function extratoHtml(todos, lancamentos, tipo) {
   const saldoDoDia = saldosDiarios(todos);
   const porDia = new Map();
   [...lancamentos]
-    .sort((a, b) => b.data.localeCompare(a.data))
+    .sort((a, b) => porDataEHora(b, a)) // mais recente primeiro, também dentro do mesmo dia
     .forEach(l => {
       if (!porDia.has(l.data)) porDia.set(l.data, []);
       porDia.get(l.data).push(l);
@@ -638,6 +641,7 @@ let pararEscutas = [];
 function aoMudarLogin(user) {
   pararEscutas.forEach(parar => parar());
   pararEscutas = [];
+  document.querySelectorAll('dialog[open]').forEach(d => d.close()); // nada fica aberto de outra sessão
   Object.assign(state, { user, marceneiros: [], lancamentos: [], pedidos: [], saldoOculto: false, filtro: { ...esteMes(), tipo: 'todos' } });
   state.carregados.clear();
 
@@ -727,6 +731,7 @@ function openLancamento(id) {
     <p class="detail-type">${credito ? 'Serviço (entrada)' : 'Retirada (saída)'}${futuro ? ' · Agendado' : ''}</p>
     ${detalhesHtml([
       [credito && futuro ? 'Libera em' : 'Data', formatDate(l.data)],
+      ['Lançado em', formatMomento(l.criadoEm)],
       ['Descrição', l.desc],
       ...(l.cliente ? [['Cliente', l.cliente]] : []),
       ['Conta', m.nome],
@@ -849,11 +854,11 @@ function extratoParaImpressao(m, inicio, fim, tipo) {
   const todos = lancamentosDe(m.id);
   const realizados = todos.filter(l => l.data <= hoje);
   const doTipo = l => tipo === 'todos' || l.tipo === tipo;
-  const doPeriodo = realizados.filter(l => l.data >= inicio && l.data <= fim).sort(porData);
+  const doPeriodo = realizados.filter(l => l.data >= inicio && l.data <= fim).sort(porDataEHora);
   const entradas = doPeriodo.filter(l => l.tipo === 'credito').reduce((s, l) => s + l.valor, 0);
   const saidas = doPeriodo.filter(l => l.tipo === 'debito').reduce((s, l) => s + l.valor, 0);
   // Agendados só fazem sentido se o período chega até hoje
-  const agendados = fim >= hoje ? todos.filter(l => l.data > hoje && doTipo(l)).sort(porData) : [];
+  const agendados = fim >= hoje ? todos.filter(l => l.data > hoje && doTipo(l)).sort(porDataEHora) : [];
   const completo = tipo === 'todos';
   const colunas = completo ? 5 : 3;
 
@@ -1231,9 +1236,11 @@ document.addEventListener('click', e => {
   if (el) actions[el.dataset.action](el);
 });
 
-// Clicar fora da janela fecha
+// Clicar fora da janela ou apertar Esc fecha (na confirmação, vale como "Cancelar")
 document.querySelectorAll('dialog').forEach(dialog => {
-  dialog.addEventListener('click', e => { if (e.target === dialog) dialog.close(); });
+  const fechar = () => (dialog.id === 'dlg-confirmar' ? responderConfirmacao(false) : dialog.close());
+  dialog.addEventListener('click', e => { if (e.target === dialog) fechar(); });
+  dialog.addEventListener('cancel', e => { e.preventDefault(); fechar(); });
 });
 
 document.addEventListener('submit', async e => {
