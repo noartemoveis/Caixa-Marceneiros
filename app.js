@@ -7,6 +7,7 @@
 import * as Store from './store.js';
 
 const LEMBRAR_KEY = 'caixa_ultimo_email';
+const AGENDADOS_KEY = 'caixa_agendados';
 const SITE_URL = location.origin + location.pathname;
 
 // Filtro do extrato e do PDF por tipo de lançamento
@@ -91,13 +92,17 @@ const firstName = nome => nome.trim().split(/\s+/)[0];
 
 const mensagemErro = err => ERROS[err?.code] || (err?.code ? 'Algo deu errado. Tente de novo.' : err?.message);
 
+// Preferências guardadas só neste aparelho (sem quebrar em modo anônimo)
+function lerPreferencia(chave) {
+  try { return localStorage.getItem(chave) || ''; } catch { return ''; }
+}
+function salvarPreferencia(chave, valor) {
+  try { localStorage.setItem(chave, valor); } catch { /* modo anônimo: segue sem lembrar */ }
+}
+
 // Lembra o e-mail de quem usou o aparelho por último (nunca a senha)
-function lerEmailLembrado() {
-  try { return localStorage.getItem(LEMBRAR_KEY) || ''; } catch { return ''; }
-}
-function lembrarEmail(email) {
-  try { localStorage.setItem(LEMBRAR_KEY, email); } catch { /* modo anônimo: segue sem lembrar */ }
-}
+const lerEmailLembrado = () => lerPreferencia(LEMBRAR_KEY);
+const lembrarEmail = email => salvarPreferencia(LEMBRAR_KEY, email);
 
 function toast(message, type = 'success') {
   const el = document.createElement('div');
@@ -141,6 +146,7 @@ const ICONS = {
   calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
   chevronLeft: '<path d="M15 18l-6-6 6-6"/>',
   chevronRight: '<path d="M9 18l6-6-6-6"/>',
+  chevronDown: '<path d="M6 9l6 6 6-6"/>',
 };
 
 const icon = name =>
@@ -158,6 +164,7 @@ const state = {
   contaId: null,
   filtro: { inicio: null, fim: null, tipo: 'todos' }, // extrato na tela (datas null = todo o histórico)
   saldoOculto: false,
+  agendadosAberto: lerPreferencia(AGENDADOS_KEY) !== 'fechado', // lembrado em cada aparelho
   // Tela de pedidos: aba aberta, de qual conta (null = todas) e para onde volta
   pedidosAba: 'pendentes',
   pedidosDe: null,
@@ -544,12 +551,18 @@ function viewPedidos() {
     </div>`;
 }
 
+// Bloco recolhível: a seta esconde a lista para o extrato aparecer logo
 function agendadosHtml(futuros) {
   if (!futuros.length) return '';
+  const aberto = state.agendadosAberto;
+  const total = futuros.reduce((s, l) => s + sinal(l) * l.valor, 0);
   return `
-    <div class="day-group agendados">
-      <div class="day-head"><span>Agendados</span><span>Ainda não contam no saldo</span></div>
-      <div class="day-list">${futuros.map(lancamentoHtml).join('')}</div>
+    <div class="day-group agendados${aberto ? '' : ' recolhido'}">
+      <button class="day-head agendados-toggle" data-action="toggle-agendados" aria-expanded="${aberto}">
+        <span>${icon('chevronDown')} Agendados (${futuros.length})</span>
+        <span>${aberto ? 'Ainda não contam no saldo' : `${total < 0 ? '−' : '+'} ${formatMoney(Math.abs(total))}`}</span>
+      </button>
+      ${aberto ? `<div class="day-list">${futuros.map(lancamentoHtml).join('')}</div>` : ''}
     </div>`;
 }
 
@@ -1032,6 +1045,11 @@ const actions = {
   'cal-tipo': el => {
     cal.tipo = el.dataset.tipo;
     renderCalendario();
+  },
+  'toggle-agendados': () => {
+    state.agendadosAberto = !state.agendadosAberto;
+    salvarPreferencia(AGENDADOS_KEY, state.agendadosAberto ? 'aberto' : 'fechado');
+    render();
   },
   'filtro-tipo': el => {
     state.filtro = { ...state.filtro, tipo: el.dataset.tipo };

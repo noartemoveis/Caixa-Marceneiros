@@ -163,6 +163,10 @@ svg { width: 20px; height: 20px; flex-shrink: 0; }
 
 /* Bloco de agendados no extrato */
 .agendados .day-head { color: var(--amber); }
+.agendados-toggle { width: 100%; padding-top: 4px; padding-bottom: 4px; }
+.agendados-toggle span { display: inline-flex; align-items: center; gap: 4px; }
+.agendados-toggle svg { width: 16px; height: 16px; transition: transform .2s; }
+.agendados.recolhido .agendados-toggle svg { transform: rotate(-90deg); }
 .agendados .day-list { border-style: dashed; }
 
 /* Calendário */
