@@ -132,6 +132,7 @@ const ICONS = {
   cart: '<circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>',
   print: '<path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 14h12v8H6z"/>',
   send: '<path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z"/>',
+  inbox: '<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
   arrowUp: '<path d="M12 19V5M5 12l7-7 7 7"/>',
   arrowDown: '<path d="M12 5v14M19 12l-7 7-7-7"/>',
   calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
@@ -145,7 +146,7 @@ const icon = name =>
 // ================= ESTADO =================
 
 const state = {
-  screen: 'carregando', // carregando | config | login | admin | conta
+  screen: 'carregando', // carregando | config | login | admin | conta | pedidos
   user: null,           // { role: 'admin' | 'marceneiro', uid, email }
   marceneiros: [],
   lancamentos: [],
@@ -154,6 +155,10 @@ const state = {
   contaId: null,
   filtro: { inicio: null, fim: null }, // período do extrato na tela (null = todo o histórico)
   saldoOculto: false,
+  // Tela de pedidos: aba aberta, de qual conta (null = todas) e para onde volta
+  pedidosAba: 'pendentes',
+  pedidosDe: null,
+  pedidosVolta: 'admin',
 };
 
 const COLECOES = ['marceneiros', 'lancamentos', 'pedidos'];
@@ -361,7 +366,10 @@ function viewAdmin() {
   if (!carregado()) lista = '<p class="empty">Carregando…</p>';
 
   const blocoPedidos = pendentes.length ? `
-    <div class="section-head"><h2>Pedidos de retirada <span class="badge">${pendentes.length}</span></h2></div>
+    <div class="section-head">
+      <h2>Pedidos aguardando <span class="badge">${pendentes.length}</span></h2>
+      <button class="link-sm" data-action="ver-pedidos">Ver todos</button>
+    </div>
     <div class="pedido-list">${pendentes.map(p => pedidoHtml(p, { mostrarNome: true, mostrarBotoes: true })).join('')}</div>` : '';
 
   return `
@@ -370,7 +378,12 @@ function viewAdmin() {
         <img class="logo" src="logo-simbolo.png" alt="Nô Art">
         <div><strong>Olá, Administrador</strong><small>Caixa dos Marceneiros</small></div>
       </div>
-      <button class="icon-btn" data-action="logout" title="Sair">${icon('logout')}</button>
+      <div class="topbar-actions">
+        <button class="icon-btn com-badge" data-action="ver-pedidos" title="Pedidos de retirada">
+          ${icon('inbox')}${pendentes.length ? `<span class="badge">${pendentes.length}</span>` : ''}
+        </button>
+        <button class="icon-btn" data-action="logout" title="Sair">${icon('logout')}</button>
+      </div>
     </header>
 
     <section class="balance-card">
@@ -436,7 +449,10 @@ function viewConta() {
       ['nova-retirada', 'minus', 'Retirada', 'red'],
       ['novo-parcelado', 'cart', 'Parcelado', 'amber'],
     ]
-    : [['novo-pedido', 'send', 'Pedir retirada', 'accent']]
+    : [
+      ['novo-pedido', 'send', 'Pedir retirada', 'accent'],
+      ['ver-pedidos', 'inbox', 'Meus pedidos', 'accent'],
+    ]
   ).concat([['imprimir', 'print', 'Extrato PDF', 'accent']])
     .map(([action, ic, label, tone]) => `
       <button class="quick-action" data-action="${action}">
@@ -444,15 +460,17 @@ function viewConta() {
         <span>${label}</span>
       </button>`).join('');
 
-  // Admin vê os pedidos pendentes desta conta; o marceneiro vê os últimos pedidos dele
-  const pedidos = state.pedidos
-    .filter(p => p.marcId === m.id && (!isAdmin() || p.status === 'pendente'))
-    .sort(porMaisRecente)
-    .slice(0, 5);
-  const blocoPedidos = pedidos.length ? `
+  // Aqui só os pedidos que aguardam resposta; o histórico fica na tela de pedidos
+  const pendentes = state.pedidos
+    .filter(p => p.marcId === m.id && p.status === 'pendente')
+    .sort(porMaisRecente);
+  const blocoPedidos = pendentes.length ? `
     <section>
-      <div class="section-head"><h2>${isAdmin() ? 'Pedidos aguardando' : 'Meus pedidos'}</h2></div>
-      <div class="pedido-list">${pedidos.map(p => pedidoHtml(p, { mostrarNome: false, mostrarBotoes: isAdmin() })).join('')}</div>
+      <div class="section-head">
+        <h2>Pedidos aguardando</h2>
+        <button class="link-sm" data-action="ver-pedidos" data-id="${m.id}">Ver todos</button>
+      </div>
+      <div class="pedido-list">${pendentes.map(p => pedidoHtml(p, { mostrarNome: false, mostrarBotoes: isAdmin() })).join('')}</div>
     </section>` : '';
 
   return `
@@ -480,6 +498,36 @@ function viewConta() {
         </div>
         ${extratoHtml(todos, doPeriodo)}
       </section>
+    </div>`;
+}
+
+// Todos os pedidos de retirada: "Aguardando" e "Histórico" (já respondidos)
+function viewPedidos() {
+  const daConta = state.pedidosDe ? state.pedidos.filter(p => p.marcId === state.pedidosDe) : state.pedidos;
+  const pendentes = daConta.filter(p => p.status === 'pendente');
+  const historico = daConta.filter(p => p.status !== 'pendente');
+  const aba = state.pedidosAba;
+  const lista = (aba === 'pendentes' ? pendentes : historico).sort(porMaisRecente);
+  const conta = state.pedidosDe && isAdmin() ? marceneiroDe(state.pedidosDe) : null;
+
+  const vazio = aba === 'pendentes' ? 'Nenhum pedido aguardando resposta.' : 'Nenhum pedido respondido ainda.';
+  const abas = [['pendentes', `Aguardando${pendentes.length ? ` (${pendentes.length})` : ''}`], ['historico', 'Histórico']]
+    .map(([id, rotulo]) => `<button type="button" class="${aba === id ? 'active' : ''}" data-action="pedidos-aba" data-aba="${id}">${rotulo}</button>`)
+    .join('');
+
+  return `
+    <div class="conta">
+      <header class="topbar">
+        <button class="icon-btn" data-action="voltar-pedidos" title="Voltar">${icon('back')}</button>
+        <div class="brand-center"><span class="truncate">${conta ? `Pedidos · ${escapeHtml(conta.nome)}` : 'Pedidos de retirada'}</span></div>
+        <span class="icon-btn-espaco"></span>
+      </header>
+
+      <div class="segmented pedidos-abas">${abas}</div>
+
+      ${lista.length
+        ? `<div class="pedido-list">${lista.map(p => pedidoHtml(p, { mostrarNome: isAdmin() && !conta, mostrarBotoes: isAdmin() })).join('')}</div>`
+        : `<p class="empty">${vazio}</p>`}
     </div>`;
 }
 
@@ -529,6 +577,7 @@ const VIEWS = {
   login: viewLogin,
   admin: viewAdmin,
   conta: viewConta,
+  pedidos: viewPedidos,
 };
 
 function render() {
@@ -890,6 +939,18 @@ async function responderPedido(id, aprovar) {
 const actions = {
   'logout': () => Store.logout(),
   'back': () => go('admin'),
+  'ver-pedidos': el => {
+    // Marceneiro sempre vê só os dele; admin vê de todos ou da conta aberta
+    state.pedidosDe = isAdmin() ? (el.dataset.id ?? null) : state.contaId;
+    state.pedidosVolta = state.screen;
+    state.pedidosAba = 'pendentes';
+    go('pedidos');
+  },
+  'pedidos-aba': el => {
+    state.pedidosAba = el.dataset.aba;
+    render();
+  },
+  'voltar-pedidos': () => go(state.pedidosVolta),
   'open-conta': el => openConta(el.dataset.id),
   'toggle-saldo': () => {
     state.saldoOculto = !state.saldoOculto;
