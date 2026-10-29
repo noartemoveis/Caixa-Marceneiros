@@ -17,6 +17,10 @@ export const firebaseConfig = {
 // 2) E-mail do administrador (o mesmo que vai nas regras do Firestore e no script de e-mail)
 export const ADMIN_EMAIL = 'noartemoveis@gmail.com';
 
-// 3) Endereço do script de avisos por e-mail (Google Apps Script).
-//    Enquanto estiver "COLE_AQUI", o app funciona normalmente, só não manda e-mail.
+// 3) Endereço do script de avisos por e-mail e notificação (Google Apps Script).
+//    Enquanto estiver "COLE_AQUI", o app funciona normalmente, só não manda avisos.
 export const EMAIL_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbzqHXhRkQ4GoPpUvUxkDUDCA7dN2ckClgJe_5JNW0mHfRZ1O4IrQs4iJxQhhnFEfwj0Hw/exec';
+
+// 4) Chave PÚBLICA para notificações no celular (pode ficar à mostra, não é segredo)
+//    Console do Firebase > Configurações do projeto > Cloud Messaging > Certificados push da Web
+export const VAPID_KEY = 'COLE_AQUI';

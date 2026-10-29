@@ -1,7 +1,7 @@
 /* =========================================================
    Store — camada de dados (Firebase)
    Login: Firebase Authentication (e-mail e senha).
-   Dados: Cloud Firestore. Avisos por e-mail: Google Apps Script.
+   Dados: Cloud Firestore. Avisos por e-mail e notificação: Google Apps Script.
    A interface (app.js) só conversa com as funções exportadas aqui.
 
    Coleções no Firestore:
@@ -9,6 +9,7 @@
      lancamentos/{id}  → { marcId, uid, tipo, data, desc, cliente, valor, criadoEm,
                            estornado?, estornadoEm?, estornoDe?, cancelado?, canceladoEm?, alteracoes? }
      pedidos/{id}      → { marcId, uid, valor, motivo, status, criadoEm, respondidoEm }
+     dispositivos/{código do aparelho} → { uid, papel, atualizadoEm }  (quem recebe notificações)
    O campo "uid" liga cada registro ao login do marceneiro (usado nas regras de segurança).
    ========================================================= */
 
@@ -20,9 +21,10 @@ import {
 import {
   getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
   collection, doc, query, where, onSnapshot, getDocs,
-  addDoc, updateDoc, deleteDoc, writeBatch, runTransaction, serverTimestamp, arrayUnion,
+  addDoc, setDoc, updateDoc, deleteDoc, writeBatch, runTransaction, serverTimestamp, arrayUnion,
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
-import { firebaseConfig, ADMIN_EMAIL, EMAIL_WEBHOOK_URL } from './firebase-config.js';
+import { getMessaging, getToken, isSupported } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging.js';
+import { firebaseConfig, ADMIN_EMAIL, EMAIL_WEBHOOK_URL, VAPID_KEY } from './firebase-config.js';
 
 const naoPreenchido = valor => !valor || valor.startsWith('COLE');
 
@@ -249,18 +251,53 @@ export const aprovarPedido = (pedido, marceneiro, data) =>
 
 export const recusarPedido = pedido => responder(pedido, 'recusado');
 
-// ---------- Avisos por e-mail ----------
-// O script do Google confere quem está enviando:
-// marceneiro só consegue mandar para o administrador; o administrador manda para qualquer marceneiro.
+// ---------- Avisos (e-mail e notificação no celular) ----------
+// Quem envia é o script do Google, que confere quem está pedindo o envio:
+// marceneiro só consegue avisar o administrador; o administrador avisa qualquer marceneiro.
+//   email: { para, assunto, mensagem }  → e-mail
+//   push:  { para: 'admin' | uid, titulo, corpo } → notificação nos aparelhos dessa pessoa
 
-export async function notificar({ para = '', assunto, mensagem }) {
+export async function notificar({ email, push }) {
   if (!emailConfigurado) return;
   const idToken = await auth.currentUser.getIdToken();
   const resposta = await fetch(EMAIL_WEBHOOK_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // evita bloqueio de CORS do Google
-    body: JSON.stringify({ idToken, para, assunto, mensagem }),
+    body: JSON.stringify({ idToken, email, push }),
   });
   const resultado = await resposta.json();
-  if (!resultado.ok) throw new Error(resultado.erro || 'Falha ao enviar e-mail');
+  if (!resultado.ok) throw new Error(resultado.erro || 'Falha ao enviar o aviso');
+}
+
+// ---------- Notificações no celular: cada aparelho que ativou fica guardado ----------
+// dispositivos/{código do aparelho} → { uid, papel: 'admin' | 'marceneiro', atualizadoEm }
+
+export const notificacoesConfiguradas = !naoPreenchido(VAPID_KEY);
+
+// Código do aparelho para receber notificações (pede ao Firebase usando o service worker do app)
+async function codigoDoAparelho() {
+  if (!notificacoesConfiguradas || !(await suportaNotificacoes())) return null;
+  const registro = await navigator.serviceWorker.ready;
+  return getToken(getMessaging(app), { vapidKey: VAPID_KEY, serviceWorkerRegistration: registro });
+}
+
+export const suportaNotificacoes = () => isSupported().catch(() => false);
+
+// Chamado depois que a pessoa permitiu as notificações (e a cada login, para manter atualizado)
+export async function registrarAparelho(user) {
+  const codigo = await codigoDoAparelho();
+  if (!codigo) return false;
+  await setDoc(doc(db, 'dispositivos', codigo), {
+    uid: user.uid,
+    papel: user.role,
+    atualizadoEm: serverTimestamp(),
+  });
+  return true;
+}
+
+// Ao sair, o aparelho para de receber avisos daquela conta
+export async function esquecerAparelho() {
+  if (globalThis.Notification?.permission !== 'granted') return; // iPhone fora da tela de início não tem
+  const codigo = await codigoDoAparelho();
+  if (codigo) await deleteDoc(doc(db, 'dispositivos', codigo));
 }

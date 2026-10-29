@@ -6,7 +6,7 @@
      porque elas nunca mudam. Assim o app abre mesmo sem sinal.
    Os dados (saldos, extratos) quem guarda é o próprio Firebase, no aparelho. */
 
-const CACHE = 'caixa-marceneiros-v19';
+const CACHE = 'caixa-marceneiros-v20';
 const FIREBASE = 'https://www.gstatic.com/firebasejs/10.12.2';
 const FILES = [
   './',
@@ -24,6 +24,7 @@ const FILES = [
   `${FIREBASE}/firebase-app.js`,
   `${FIREBASE}/firebase-auth.js`,
   `${FIREBASE}/firebase-firestore.js`,
+  `${FIREBASE}/firebase-messaging.js`,
 ];
 
 // Endereços externos que podem ser guardados (versões fixas, nunca mudam)
@@ -64,4 +65,35 @@ self.addEventListener('fetch', event => {
     );
   }
   // Todo o resto (conexão com o banco, login, e-mails) passa direto, sem guardar
+});
+
+// ---------- Notificações no celular ----------
+// O script do Google manda { titulo, corpo, url }; aqui vira a notificação na tela,
+// mesmo com o app fechado.
+
+self.addEventListener('push', event => {
+  let mensagem = {};
+  try {
+    const recebido = event.data ? event.data.json() : {};
+    mensagem = recebido.data ?? recebido;
+  } catch {
+    mensagem = { corpo: event.data?.text() };
+  }
+  event.waitUntil(self.registration.showNotification(mensagem.titulo || 'Caixa dos Marceneiros', {
+    body: mensagem.corpo || '',
+    icon: 'icon-192.png',
+    badge: 'favicon.png',
+    data: { url: mensagem.url || self.registration.scope },
+  }));
+});
+
+// Tocar na notificação abre o app (ou traz para frente, se já estiver aberto)
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(janelas => {
+      const aberta = janelas.find(j => j.url.startsWith(self.registration.scope));
+      return aberta ? aberta.focus() : self.clients.openWindow(event.notification.data.url);
+    })
+  );
 });

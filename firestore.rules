@@ -54,5 +54,15 @@ service cloud.firestore {
       allow create: if isAdmin() || pedidoProprioValido();
       allow update, delete: if isAdmin();
     }
+
+    // Aparelhos que recebem notificação: cada pessoa só cadastra o próprio aparelho,
+    // e só o administrador pode se cadastrar como "admin"
+    match /dispositivos/{codigo} {
+      allow read, delete: if isAdmin() || isDono();
+      allow create, update: if request.auth != null
+        && request.resource.data.uid == request.auth.uid
+        && ((isAdmin() && request.resource.data.papel == 'admin')
+            || (!isAdmin() && request.resource.data.papel == 'marceneiro'));
+    }
   }
 }

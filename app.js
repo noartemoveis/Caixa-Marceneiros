@@ -8,6 +8,7 @@ import * as Store from './store.js';
 
 const LEMBRAR_KEY = 'caixa_ultimo_email';
 const AGENDADOS_KEY = 'caixa_agendados';
+const AVISOS_DISPENSADO_KEY = 'caixa_avisos_dispensado';
 const SITE_URL = location.origin + location.pathname;
 
 // Filtro do extrato e do PDF por tipo de lançamento
@@ -134,7 +135,7 @@ async function avisar(dados) {
     await Store.notificar(dados);
   } catch (err) {
     console.error(err);
-    toast('Salvo, mas o e-mail de aviso não foi enviado.', 'error');
+    toast('Salvo, mas o aviso não foi enviado.', 'error');
   }
 }
 
@@ -163,6 +164,7 @@ const ICONS = {
   check: '<path d="M20 6 9 17l-5-5"/>',
   download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>',
   chart: '<path d="M3 3v18h18"/><path d="M7 16v-5M12 16V8M17 16v-9"/>',
+  bell: '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0"/>',
   wifiOff: '<path d="M1 1l22 22M16.72 11.06A10.94 10.94 0 0 1 19 12.55M5 12.55a10.94 10.94 0 0 1 5.17-2.39M10.71 5.05A16 16 0 0 1 22.58 9M1.42 9a15.91 15.91 0 0 1 4.7-2.88M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/>',
 };
 
@@ -337,6 +339,34 @@ function brandBlock() {
     </div>`;
 }
 
+// Cartão para ativar as notificações no celular (some depois de ativar ou de "Agora não")
+const ehIphone = /iPhone|iPad|iPod/.test(navigator.userAgent);
+const appInstalado = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+
+function cartaoNotificacoes() {
+  if (!Store.notificacoesConfiguradas || lerPreferencia(AVISOS_DISPENSADO_KEY)) return '';
+
+  const cartao = (titulo, texto, botoes) => `
+    <div class="aviso-push">
+      <span class="qa-icon tone-accent">${icon('bell')}</span>
+      <div class="aviso-push-texto"><strong>${titulo}</strong><small>${texto}</small></div>
+      <div class="aviso-push-acoes">${botoes}</div>
+    </div>`;
+
+  // No iPhone, notificação só funciona com o app instalado na tela de início
+  if (ehIphone && !appInstalado) {
+    return cartao('Avisos no iPhone',
+      'Para receber avisos, toque em Compartilhar ⬆ e depois em "Adicionar à Tela de Início". Abra o app por lá.',
+      '<button class="btn btn-ghost btn-sm" data-action="push-depois">Entendi</button>');
+  }
+  if (globalThis.Notification?.permission !== 'default') return '';
+  return cartao('Receber avisos no celular',
+    isAdmin() ? 'Pedidos de retirada chegam na hora, mesmo com o app fechado.'
+      : 'Lançamentos e respostas dos seus pedidos chegam na hora, mesmo com o app fechado.',
+    `<button class="btn btn-ghost btn-sm" data-action="push-depois">Agora não</button>
+     <button class="btn btn-primary btn-sm" data-action="ativar-push">Ativar</button>`);
+}
+
 function eyeButton() {
   const label = state.saldoOculto ? 'Mostrar saldo' : 'Esconder saldo';
   return `<button data-action="toggle-saldo" aria-label="${label}" title="${label}">${icon(state.saldoOculto ? 'eyeOff' : 'eye')}</button>`;
@@ -460,6 +490,8 @@ function viewAdmin() {
       <small>${contas.length} conta(s)</small>
     </section>
 
+    ${cartaoNotificacoes()}
+
     <button class="painel-atalho" data-action="abrir-painel">
       <span class="qa-icon tone-accent">${icon('chart')}</span>
       <span><strong>Painel geral</strong><small>Totais do período, por marceneiro e por cliente</small></span>
@@ -576,6 +608,8 @@ function viewConta() {
         <div class="balance-top"><span>Saldo disponível</span>${eyeButton()}</div>
         <strong class="balance-value${saldo < 0 ? ' is-negative' : ''}">${valorVisivel(saldo)}</strong>
       </section>
+
+      ${isAdmin() ? '' : cartaoNotificacoes()}
 
       <nav class="quick-actions">${acoes}</nav>
 
@@ -887,6 +921,8 @@ function aoMudarLogin(user) {
     Store.watchLancamentos(user, lista => chegou('lancamentos', lista), erro),
     Store.watchPedidos(user, lista => chegou('pedidos', lista), erro),
   ];
+  // Quem já ativou os avisos tem o aparelho atualizado a cada entrada
+  if (globalThis.Notification?.permission === 'granted') Store.registrarAparelho(user).catch(console.warn);
   go(user.role === 'admin' ? 'admin' : 'conta');
 }
 
@@ -1397,19 +1433,55 @@ async function responderPedido(id, aprovar) {
   toast(aprovar ? 'Pedido aprovado e lançado no extrato.' : 'Pedido recusado.');
 
   await avisar({
-    para: m.email,
-    assunto: `Seu pedido de retirada foi ${aprovar ? 'aprovado' : 'recusado'}`,
-    mensagem: `Olá, ${firstName(m.nome)}!\n\n`
-      + `Seu pedido de retirada de ${formatMoney(p.valor)} foi ${aprovar ? 'APROVADO' : 'RECUSADO'}.\n`
-      + (aprovar ? 'O valor já aparece no seu extrato.\n' : 'Em caso de dúvida, fale com o administrador.\n')
-      + `\nVer no app: ${SITE_URL}`,
+    email: {
+      para: m.email,
+      assunto: `Seu pedido de retirada foi ${aprovar ? 'aprovado' : 'recusado'}`,
+      mensagem: `Olá, ${firstName(m.nome)}!\n\n`
+        + `Seu pedido de retirada de ${formatMoney(p.valor)} foi ${aprovar ? 'APROVADO' : 'RECUSADO'}.\n`
+        + (aprovar ? 'O valor já aparece no seu extrato.\n' : 'Em caso de dúvida, fale com o administrador.\n')
+        + `\nVer no app: ${SITE_URL}`,
+    },
+    push: {
+      para: m.uid,
+      titulo: `Pedido ${aprovar ? 'aprovado ✅' : 'recusado'}`,
+      corpo: `Sua retirada de ${formatMoney(p.valor)} foi ${aprovar ? 'aprovada e já está no extrato' : 'recusada'}.`,
+    },
   });
+}
+
+// Notificação no celular do marceneiro quando o administrador lança algo na conta dele
+function avisarMarceneiro(m, titulo, corpo) {
+  avisar({ push: { para: m.uid, titulo, corpo } });
 }
 
 // ================= AÇÕES (cliques) =================
 
 const actions = {
-  'logout': () => Store.logout(),
+  // Ao sair, o aparelho para de receber avisos dessa conta (sem travar se estiver sem internet)
+  'logout': async () => {
+    await Promise.race([Store.esquecerAparelho().catch(() => {}), new Promise(r => setTimeout(r, 3000))]);
+    Store.logout();
+  },
+  'ativar-push': async () => {
+    if (!exigeInternet()) return;
+    const permissao = await Notification.requestPermission();
+    if (permissao !== 'granted') {
+      fail('Os avisos foram bloqueados. Dá para liberar nas configurações do navegador.');
+    } else {
+      try {
+        await Store.registrarAparelho(state.user);
+        toast('Pronto! Os avisos vão chegar neste aparelho.');
+      } catch (err) {
+        console.error(err);
+        fail('Não foi possível ativar os avisos agora. Tente de novo mais tarde.');
+      }
+    }
+    render();
+  },
+  'push-depois': () => {
+    salvarPreferencia(AVISOS_DISPENSADO_KEY, '1');
+    render();
+  },
   'back': () => go('admin'),
   'ver-pedidos': el => {
     // Marceneiro sempre vê só os dele; admin vê de todos ou da conta aberta
@@ -1560,6 +1632,8 @@ const actions = {
     try {
       await Store.estornarLancamento(l, m, today());
       toast('Lançamento estornado.');
+      avisarMarceneiro(m, 'Lançamento estornado',
+        `${l.desc} · ${l.tipo === 'credito' ? '−' : '+'} ${formatMoney(l.valor)} (estorno)`);
     } catch (err) {
       fail(mensagemErro(err));
     }
@@ -1626,14 +1700,11 @@ const forms = {
     const agendado = f.liberacao.value === 'agendar';
     const data = agendado ? f.data.value : today();
     if (agendado && data <= today()) return fail('Para agendar, escolha uma data a partir de amanhã.');
-    await Store.addLancamento(contaAtual(), {
-      tipo: 'credito',
-      data,
-      desc: f.desc.value.trim(),
-      cliente: f.cliente.value.trim(),
-      valor,
-    });
+    const desc = f.desc.value.trim();
+    await Store.addLancamento(contaAtual(), { tipo: 'credito', data, desc, cliente: f.cliente.value.trim(), valor });
     toast(agendado ? `Serviço agendado: o valor libera em ${formatDate(data)}.` : 'Serviço lançado!');
+    avisarMarceneiro(contaAtual(), agendado ? 'Serviço agendado' : 'Novo serviço lançado',
+      `${desc} · + ${formatMoney(valor)}${agendado ? ` (libera em ${formatDate(data)})` : ''}`);
   },
 
   // Edição: confere o saldo com o valor novo e guarda como era antes
@@ -1667,6 +1738,7 @@ const forms = {
     const desc = obs ? `${f.forma.value} - ${obs}` : f.forma.value;
     await Store.addLancamento(contaAtual(), { tipo: 'debito', data: f.data.value, desc, valor });
     toast('Retirada registrada!');
+    avisarMarceneiro(contaAtual(), 'Retirada registrada', `${desc} · − ${formatMoney(valor)}`);
   },
 
   async parcelado(f) {
@@ -1677,8 +1749,10 @@ const forms = {
     if (ficariaNegativo(lancamentosDe(state.contaId), novas)) {
       return fail('Saldo insuficiente: com essas parcelas o saldo ficaria negativo.');
     }
-    await Store.addParcelado(contaAtual(), { desc: f.desc.value.trim(), total, parcelas, dataInicio: f.data.value });
+    const desc = f.desc.value.trim();
+    await Store.addParcelado(contaAtual(), { desc, total, parcelas, dataInicio: f.data.value });
     toast(`${parcelas} parcela(s) gerada(s)!`);
+    avisarMarceneiro(contaAtual(), 'Compra parcelada', `${desc} · ${parcelas}x de ${formatMoney(total / parcelas)}`);
   },
 
   async pedido(f) {
@@ -1694,10 +1768,17 @@ const forms = {
     toast('Pedido enviado! Você será avisado quando for respondido.');
 
     avisar({
-      assunto: `Pedido de retirada: ${m.nome} - ${formatMoney(valor)}`,
-      mensagem: `${m.nome} pediu uma retirada de ${formatMoney(valor)}.\n`
-        + `Motivo: ${motivo || 'não informado'}\n\n`
-        + `Abra o Caixa dos Marceneiros para aprovar ou recusar: ${SITE_URL}`,
+      email: {
+        assunto: `Pedido de retirada: ${m.nome} - ${formatMoney(valor)}`,
+        mensagem: `${m.nome} pediu uma retirada de ${formatMoney(valor)}.\n`
+          + `Motivo: ${motivo || 'não informado'}\n\n`
+          + `Abra o Caixa dos Marceneiros para aprovar ou recusar: ${SITE_URL}`,
+      },
+      push: {
+        para: 'admin',
+        titulo: 'Novo pedido de retirada',
+        corpo: `${m.nome} pediu ${formatMoney(valor)}${motivo ? ` · ${motivo}` : ''}`,
+      },
     });
   },
 };

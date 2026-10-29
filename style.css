@@ -318,6 +318,18 @@ button.painel-linha:hover { background: var(--bg); }
 .painel-valor { font-weight: 700; font-size: 14px; white-space: nowrap; text-align: right; }
 .painel-valor small { display: block; color: var(--muted); font-size: 11px; font-weight: 500; }
 
+/* Cartão "Receber avisos no celular" */
+.aviso-push {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px;
+  margin: -6px 0 20px; padding: 14px;
+  background: var(--accent-soft); border: 1px solid #E8CDBB; border-radius: var(--radius);
+}
+.aviso-push .qa-icon { width: 44px; height: 44px; border-radius: 14px; flex-shrink: 0; }
+.aviso-push-texto { flex: 1; min-width: 180px; }
+.aviso-push-texto strong { display: block; font-size: 15px; }
+.aviso-push-texto small { color: var(--muted); font-size: 12px; }
+.aviso-push-acoes { display: flex; gap: 8px; margin-left: auto; }
+
 /* Aviso de sem internet, fixo no topo */
 .offline {
   position: sticky; top: 0; z-index: 50;
