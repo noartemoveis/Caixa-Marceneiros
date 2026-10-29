@@ -23,4 +23,4 @@ export const EMAIL_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbzqHXh
 
 // 4) Chave PÚBLICA para notificações no celular (pode ficar à mostra, não é segredo)
 //    Console do Firebase > Configurações do projeto > Cloud Messaging > Certificados push da Web
-export const VAPID_KEY = 'COLE_AQUI';
+export const VAPID_KEY = 'BPFvuIq-65eDneh1280ApYuFb8PHWC0Zo-stcVPxGqVRgN9XKqgmCNOrPfAsrPbiAD6Vm6v630Ip4nY78S5nglc';
