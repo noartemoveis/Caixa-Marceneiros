@@ -136,10 +136,13 @@ export async function addMarceneiro({ nome, email }) {
 
 export const updateMarceneiro = (id, { nome }) => updateDoc(doc(db, 'marceneiros', id), { nome });
 
-export async function removeMarceneiro(id) {
+export async function removeMarceneiro({ id, uid }) {
   for (const colecao of ['lancamentos', 'pedidos']) {
     await emLotes(await docsDoMarceneiro(colecao, id), (batch, d) => batch.delete(d.ref));
   }
+  // Aparelhos dele deixam de receber notificações
+  const aparelhos = await getDocs(query(collection(db, 'dispositivos'), where('uid', '==', uid)));
+  await emLotes(aparelhos.docs, (batch, d) => batch.delete(d.ref));
   await deleteDoc(doc(db, 'marceneiros', id));
 }
 
@@ -187,19 +190,23 @@ export async function addParcelado(marceneiro, { desc, total, parcelas, dataInic
 // Erros se corrigem como num banco: estorno, cancelamento de agendado ou edição com histórico.
 
 // Estorno: o original fica no extrato marcado como estornado e entra um lançamento contrário
+// Confere no servidor que ainda não foi estornado (evita estorno duplo com dois aparelhos)
 export async function estornarLancamento(lancamento, marceneiro, data) {
-  const batch = writeBatch(db);
-  batch.update(doc(db, 'lancamentos', lancamento.id), { estornado: true, estornadoEm: serverTimestamp() });
-  batch.set(doc(collection(db, 'lancamentos')), {
-    ...dadosLancamento(marceneiro, {
-      tipo: lancamento.tipo === 'credito' ? 'debito' : 'credito',
-      data,
-      desc: `Estorno - ${lancamento.desc}`,
-      valor: lancamento.valor,
-    }),
-    estornoDe: lancamento.id,
+  const ref = doc(db, 'lancamentos', lancamento.id);
+  await runTransaction(db, async tx => {
+    const atual = await tx.get(ref);
+    if (atual.data()?.estornado) throw new Error('Esse lançamento já foi estornado.');
+    tx.update(ref, { estornado: true, estornadoEm: serverTimestamp() });
+    tx.set(doc(collection(db, 'lancamentos')), {
+      ...dadosLancamento(marceneiro, {
+        tipo: lancamento.tipo === 'credito' ? 'debito' : 'credito',
+        data,
+        desc: `Estorno - ${lancamento.desc}`,
+        valor: lancamento.valor,
+      }),
+      estornoDe: lancamento.id,
+    });
   });
-  await batch.commit();
 }
 
 // Agendado que ainda não aconteceu: sai das contas, mas o registro continua no banco

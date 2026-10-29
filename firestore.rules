@@ -31,6 +31,7 @@ service cloud.firestore {
     function pedidoProprioValido() {
       let d = request.resource.data;
       return request.auth != null
+        && d.keys().hasOnly(['marcId', 'uid', 'valor', 'motivo', 'status', 'criadoEm'])
         && d.uid == request.auth.uid
         && d.status == 'pendente'
         && d.valor is number && d.valor > 0

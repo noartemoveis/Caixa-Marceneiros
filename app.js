@@ -165,7 +165,6 @@ const ICONS = {
   download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>',
   chart: '<path d="M3 3v18h18"/><path d="M7 16v-5M12 16V8M17 16v-9"/>',
   bell: '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0"/>',
-  wifiOff: '<path d="M1 1l22 22M16.72 11.06A10.94 10.94 0 0 1 19 12.55M5 12.55a10.94 10.94 0 0 1 5.17-2.39M10.71 5.05A16 16 0 0 1 22.58 9M1.42 9a15.91 15.91 0 0 1 4.7-2.88M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/>',
 };
 
 const icon = name =>
@@ -710,11 +709,11 @@ function viewPainel() {
         <div><small>Saídas no período</small><strong class="neg">${formatMoney(soma(movimento, 'debito'))}</strong></div>
         <div><small>Saldo da equipe hoje</small><strong>${valorVisivel(totalDe('saldo'))}</strong></div>
         <div><small>Agendados</small>
-          <strong class="painel-agendados"><span class="pos">+ ${formatMoney(totalDe('aLiberar'))}</span><span class="neg">− ${formatMoney(totalDe('aDescontar'))}</span></strong>
+          <strong class="painel-agendados"><span class="pos">+ ${valorVisivel(totalDe('aLiberar'))}</span><span class="neg">− ${valorVisivel(totalDe('aDescontar'))}</span></strong>
         </div>
       </div>
       <p class="hint painel-nota">
-        ${aprovados.length} pedido(s) de retirada aprovado(s) no período, somando ${formatMoney(aprovados.reduce((s, p) => s + p.valor, 0))}.
+        ${aprovados.length} pedido(s) de retirada aprovado(s) no período, somando ${formatMoney(aprovados.reduce((s, p) => s + (p.valorAprovado ?? p.valor), 0))}.
         Estornos e agendamentos cancelados não entram nas contas.
       </p>
 
@@ -756,7 +755,6 @@ function viewPedidos() {
     </div>`;
 }
 
-// Bloco recolhível: a seta esconde a lista para o extrato aparecer logo
 // Parte de baixo do extrato (resumo, agendados e lista). Fica separada para a busca
 // atualizar só ela enquanto a pessoa digita, sem tirar o foco do campo.
 function extratoConteudo(m) {
@@ -812,6 +810,7 @@ function extratoConteudo(m) {
 const textoDeBusca = l =>
   semAcento(`${l.desc} ${l.cliente || ''} ${formatMoney(l.valor)} ${l.valor.toFixed(2).replace('.', ',')}`);
 
+// Bloco recolhível: a seta esconde a lista para o extrato aparecer logo
 function agendadosHtml(futuros) {
   if (!futuros.length) return '';
   const aberto = state.agendadosAberto;
@@ -1240,13 +1239,16 @@ function extratoParaImpressao(m, inicio, fim, tipoEscolhido, cliente = '') {
   const todos = lancamentosDe(m.id);
   const realizados = todos.filter(l => l.data <= hoje);
   const tipo = cliente ? 'credito' : tipoEscolhido; // serviços de cliente são sempre entradas
-  const doTipo = passaNoFiltro({ tipo, cliente });
+  const completo = tipo === 'todos';
+  // No relatório só de entradas, saídas ou de um cliente, estornos ficam de fora
+  // (senão o original e o estorno somariam juntos no total)
+  const filtroTipo = passaNoFiltro({ tipo, cliente });
+  const doTipo = completo ? filtroTipo : l => filtroTipo(l) && !l.estornado && !l.estornoDe;
   const doPeriodo = realizados.filter(l => l.data >= inicio && l.data <= fim).sort(porDataEHora);
   const entradas = doPeriodo.filter(l => l.tipo === 'credito').reduce((s, l) => s + l.valor, 0);
   const saidas = doPeriodo.filter(l => l.tipo === 'debito').reduce((s, l) => s + l.valor, 0);
   // Agendados só fazem sentido se o período chega até hoje
   const agendados = fim >= hoje ? todos.filter(l => l.data > hoje && doTipo(l)).sort(porDataEHora) : [];
-  const completo = tipo === 'todos';
   const colunas = completo ? 5 : 3;
 
   const saldoAnterior = saldoAte(realizados, addDays(inicio, -1));
@@ -1639,7 +1641,7 @@ const actions = {
     });
     if (!confirmado) return;
     try {
-      await Store.removeMarceneiro(m.id);
+      await Store.removeMarceneiro(m);
       toast('Conta excluída.');
       go('admin');
     } catch (err) {
@@ -1851,7 +1853,7 @@ const forms = {
 
 document.addEventListener('click', e => {
   const el = e.target.closest('[data-action]');
-  if (el) actions[el.dataset.action](el);
+  if (el) actions[el.dataset.action]?.(el);
 });
 
 // Clicar fora da janela ou apertar Esc fecha (na confirmação, vale como "Cancelar")
