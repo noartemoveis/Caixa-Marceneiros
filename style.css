@@ -24,6 +24,7 @@
 
 /* ---------- Base ---------- */
 * { box-sizing: border-box; margin: 0; }
+[hidden] { display: none !important; } /* garante que "hidden" esconda mesmo com display definido no CSS */
 
 body {
   font-family: 'Inter', system-ui, sans-serif;

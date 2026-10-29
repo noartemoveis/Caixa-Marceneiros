@@ -627,7 +627,7 @@ function atualizarAgendaServico(form) {
   const agendar = form.elements.liberacao.value === 'agendar';
   const campo = form.elements.data;
   $('#servico-agenda').hidden = !agendar;
-  campo.required = agendar;
+  campo.disabled = !agendar; // desativado, o navegador não confere a data de agendamento
   campo.min = addDays(today(), 1);
   if (agendar && campo.value <= today()) campo.value = addDays(today(), 1);
 }
