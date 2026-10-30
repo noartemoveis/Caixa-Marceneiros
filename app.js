@@ -1338,10 +1338,13 @@ function render() {
   }
 }
 
-function go(screen) {
+// historico: 'push' cria uma entrada no navegador (o "voltar" volta para cá),
+// 'replace' só troca o endereço, false não mexe (usado quando o próprio navegador mudou o endereço)
+function go(screen, historico = 'push') {
   state.screen = screen;
   render();
   window.scrollTo(0, 0);
+  if (historico) atualizarEndereco(historico === 'replace');
 }
 
 function openConta(id) {
@@ -1349,6 +1352,69 @@ function openConta(id) {
   state.filtro = filtroInicial();
   state.busca = '';
   go('conta');
+}
+
+// ================= ENDEREÇOS (cada tela tem o seu) =================
+// #ferramentas, #painel, #pedidos, #pedidos/<conta>, #conta/<conta>; a tela inicial fica sem nada.
+// Assim dá para salvar nos favoritos, abrir numa aba separada e usar o "voltar" do navegador.
+
+const TELAS_SEM_ENDERECO = ['carregando', 'config', 'login'];
+let passosNoApp = 0; // quantas telas dá para voltar sem sair do app
+
+function enderecoDaTela() {
+  const { screen } = state;
+  if (screen === 'ferramentas' || screen === 'painel') return `#${screen}`;
+  if (screen === 'pedidos') return isAdmin() && state.pedidosDe ? `#pedidos/${state.pedidosDe}` : '#pedidos';
+  if (screen === 'conta' && isAdmin()) return `#conta/${state.contaId}`;
+  return '';
+}
+
+function atualizarEndereco(substituir) {
+  // Na tela de login o endereço fica como está: depois de entrar, a pessoa cai na tela que pediu
+  if (TELAS_SEM_ENDERECO.includes(state.screen)) return;
+  const destino = enderecoDaTela();
+  if (destino === location.hash) return;
+  history[substituir ? 'replaceState' : 'pushState'](null, '', destino || location.pathname + location.search);
+  if (!substituir) passosNoApp++;
+}
+
+// Abre a tela do endereço atual (ao entrar no app, ou quando o navegador volta ou avança)
+function abrirEndereco(historico) {
+  const [tela, id = null] = location.hash.slice(1).split('/');
+
+  if (!isAdmin()) {
+    // O marceneiro só tem a conta dele e os pedidos; qualquer outro endereço vira a conta
+    if (tela === 'pedidos') {
+      Object.assign(state, { pedidosDe: state.contaId, pedidosVolta: 'conta', pedidosAba: 'pendentes' });
+      return go('pedidos', historico);
+    }
+    return go('conta', 'replace');
+  }
+
+  if (tela === 'ferramentas' || tela === 'painel') return go(tela, historico);
+  if (tela === 'pedidos') {
+    Object.assign(state, { pedidosDe: id, pedidosVolta: id ? 'conta' : 'admin', pedidosAba: 'pendentes' });
+    if (id) state.contaId = id;
+    return go('pedidos', historico);
+  }
+  if (tela === 'conta' && id) {
+    if (state.contaId !== id) Object.assign(state, { contaId: id, filtro: filtroInicial(), busca: '' });
+    return go('conta', historico);
+  }
+  go('admin', 'replace'); // endereço vazio ou desconhecido: tela inicial
+}
+
+window.addEventListener('popstate', () => {
+  passosNoApp = Math.max(0, passosNoApp - 1);
+  if (!state.user) return; // na tela de login, só guarda o endereço
+  document.querySelectorAll('dialog[open]').forEach(d => d.close());
+  abrirEndereco(false);
+});
+
+// Seta de voltar dentro do app: volta no histórico do navegador quando dá (assim os dois "voltar" combinam)
+function voltar(telaSeNaoDer) {
+  if (passosNoApp > 0) history.back();
+  else go(telaSeNaoDer, 'replace');
 }
 
 // ================= LOGIN E DADOS AO VIVO =================
@@ -1390,7 +1456,7 @@ function aoMudarLogin(user) {
   }
   // Quem já ativou os avisos tem o aparelho atualizado a cada entrada
   if (globalThis.Notification?.permission === 'granted') Store.registrarAparelho(user).catch(console.warn);
-  go(user.role === 'admin' ? 'admin' : 'conta');
+  abrirEndereco('replace'); // cai na tela do endereço (ex.: #ferramentas) ou na tela inicial
 }
 
 function chegou(colecao, lista) {
@@ -1996,7 +2062,7 @@ const actions = {
     salvarPreferencia(AVISOS_DISPENSADO_KEY, '1');
     render();
   },
-  'back': () => go('admin'),
+  'back': () => voltar('admin'),
   'ver-pedidos': el => {
     // Marceneiro sempre vê só os dele; admin vê de todos ou da conta aberta
     state.pedidosDe = isAdmin() ? (el.dataset.id ?? null) : state.contaId;
@@ -2008,7 +2074,7 @@ const actions = {
     state.pedidosAba = el.dataset.aba;
     render();
   },
-  'voltar-pedidos': () => go(state.pedidosVolta),
+  'voltar-pedidos': () => voltar(state.pedidosVolta),
   'open-conta': el => openConta(el.dataset.id),
   'toggle-saldo': () => {
     state.saldoOculto = !state.saldoOculto;
