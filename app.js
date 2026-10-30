@@ -194,8 +194,10 @@ const state = {
   ferramentas: [],
   equipe: [],
   movimentos: [],
-  ferrAba: 'uso',          // uso | itens | historico | equipe
+  ferrAba: 'mov',          // mov (movimentação e histórico) | painel (itens e marceneiros)
   ferrBusca: '',           // busca no histórico de ferramentas
+  ferrFiltro: 'Todos',     // categoria no painel de itens
+  ferrForm: { ferramenta: '', pessoa: '', acao: 'retirada', obs: '' }, // formulário de movimentação
 };
 
 const COLECOES = ['marceneiros', 'lancamentos', 'pedidos'];
@@ -520,12 +522,6 @@ function viewAdmin() {
       ${icon('chevronRight')}
     </button>
 
-    <button class="painel-atalho" data-action="abrir-ferramentas">
-      <span class="qa-icon tone-amber">${icon('tool')}</span>
-      <span><strong>Ferramentas</strong><small>${resumoFerramentas()}</small></span>
-      ${icon('chevronRight')}
-    </button>
-
     ${blocoPedidos}
 
     <div class="section-head">
@@ -794,7 +790,9 @@ const LISTA_INICIAL = {
   nomes: ['Zé', 'Itu', 'Djalma', 'Mi', 'Gilmar', 'Galeguinho', 'Cesar', 'Igor', 'Vitor', 'Maksuel', 'Rondennes', 'Daniel', 'Fabiano', 'Fabianinho'],
 };
 
-const porCodigo = (a, b) => a.codigo.localeCompare(b.codigo, 'pt-BR', { numeric: true });
+// Máquinas primeiro, depois ferramentas, brocas e o resto; dentro de cada tipo, pelo código
+const ordemTipo = f => (TIPOS_FERRAMENTA.includes(f.tipo) ? TIPOS_FERRAMENTA.indexOf(f.tipo) : TIPOS_FERRAMENTA.length);
+const porCodigo = (a, b) => ordemTipo(a) - ordemTipo(b) || a.codigo.localeCompare(b.codigo, 'pt-BR', { numeric: true });
 const porNome = (a, b) => a.nome.localeCompare(b.nome, 'pt-BR');
 const ferramentasAtivas = () => state.ferramentas.filter(f => f.ativo !== false).sort(porCodigo);
 const ferramentasEmUso = () => ferramentasAtivas().filter(f => f.comQuem);
@@ -803,147 +801,185 @@ const pessoaDe = id => state.equipe.find(p => p.id === id);
 const nomeDaPessoa = (id, guardado) => pessoaDe(id)?.nome ?? guardado;
 const rotuloFerramenta = f => `${f.codigo} · ${f.nome}`;
 
-// "há 3 dias", "há 2 h", "agora"
-function haQuantoTempo(timestamp) {
-  const minutos = Math.floor((Date.now() - momento(timestamp)) / 60000);
-  if (minutos < 1) return 'agora';
-  if (minutos < 60) return `há ${minutos} min`;
-  const horas = Math.floor(minutos / 60);
-  if (horas < 24) return `há ${horas} h`;
-  const dias = Math.floor(horas / 24);
-  return `há ${dias} dia${dias > 1 ? 's' : ''}`;
+const formatDataHora = timestamp =>
+  momento(timestamp).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+// Formulário de movimentação: os valores ficam no estado para não sumirem
+// quando chegam dados novos do banco e a tela é redesenhada
+const formMovVazio = () => ({ ferramenta: '', pessoa: '', acao: 'retirada', obs: '' });
+
+// Ao escolher a ferramenta, a ação acompanha: se está fora, é devolução de quem está com ela
+function escolherFerramentaMov(id) {
+  const f = state.ferramentas.find(x => x.id === id);
+  state.ferrForm.ferramenta = id;
+  state.ferrForm.acao = f?.comQuem ? 'devolucao' : 'retirada';
+  if (f?.comQuem) state.ferrForm.pessoa = f.comQuem.pessoaId;
 }
 
-// Texto do atalho na tela inicial
-function resumoFerramentas() {
-  if (!ferramentasCarregadas()) return 'Quem está com cada máquina';
-  const ativas = ferramentasAtivas();
-  if (!ativas.length) return 'Quem está com cada máquina';
-  const emUso = ativas.filter(f => f.comQuem).length;
-  return emUso ? `${emUso} em uso · ${ativas.length - emUso} na empresa` : `Todas na empresa (${ativas.length})`;
-}
-
-function linhaEmUso(f) {
-  const { pessoaId, nome, desde, obs } = f.comQuem;
-  const pessoa = nomeDaPessoa(pessoaId, nome);
-  return `
-    <div class="painel-linha">
-      <span class="avatar sm">${escapeHtml(initials(pessoa))}</span>
-      <span class="painel-info">
-        <strong>${escapeHtml(rotuloFerramenta(f))}</strong>
-        <small><b>${escapeHtml(pessoa)}</b> · ${haQuantoTempo(desde)}${obs ? ` · ${escapeHtml(obs)}` : ''}</small>
-      </span>
-      <button class="btn btn-ghost btn-sm" data-action="devolver-ferramenta" data-id="${f.id}">Devolver</button>
-    </div>`;
-}
-
-function abaEmUso() {
-  const emUso = ferramentasEmUso().sort((a, b) => momento(a.comQuem.desde) - momento(b.comQuem.desde));
-  return emUso.length
-    ? `<div class="painel-lista">${emUso.map(linhaEmUso).join('')}</div>`
-    : '<p class="empty">Nenhuma ferramenta fora. Tudo guardado na empresa.</p>';
-}
-
-function abaItens() {
-  const linha = f => {
-    const situacao = f.ativo === false
-      ? '<span class="tag tag-cinza">Desativada</span>'
-      : f.comQuem
-        ? `<span class="tag">Com ${escapeHtml(nomeDaPessoa(f.comQuem.pessoaId, f.comQuem.nome))}</span>`
-        : '<span class="tag tag-green">Na empresa</span>';
-    const botao = f.ativo === false ? ''
-      : f.comQuem
-        ? `<button class="btn btn-ghost btn-sm" data-action="devolver-ferramenta" data-id="${f.id}">Devolver</button>`
-        : `<button class="btn btn-ghost btn-sm" data-action="retirar-ferramenta" data-id="${f.id}">Retirar</button>`;
-    return `
-      <div class="painel-linha${f.ativo === false ? ' inativo' : ''}">
-        <button class="painel-info ferr-editar" data-action="editar-ferramenta" data-id="${f.id}" title="Editar">
-          <strong>${escapeHtml(rotuloFerramenta(f))}</strong>
-          <small>${situacao}</small>
-        </button>
-        ${botao}
-      </div>`;
-  };
-  const todas = [...state.ferramentas].sort(porCodigo);
-  // Tipo desconhecido (ou vazio) entra em "Outro", para nenhuma ferramenta sumir da lista
-  const tipoDe = f => (TIPOS_FERRAMENTA.includes(f.tipo) ? f.tipo : 'Outro');
-  const grupos = TIPOS_FERRAMENTA.map(tipo => [tipo, todas.filter(f => f.ativo !== false && tipoDe(f) === tipo)])
-    .concat([['Desativadas', todas.filter(f => f.ativo === false)]])
-    .filter(([, lista]) => lista.length);
+function formMovimentacao() {
+  const { ferramenta, pessoa, acao, obs } = state.ferrForm;
+  const selecionada = state.ferramentas.find(f => f.id === ferramenta);
+  const devolucao = acao === 'devolucao';
+  const pessoas = state.equipe.filter(p => p.ativo !== false || p.id === pessoa).sort(porNome);
+  const opcao = (valor, texto, escolhido) =>
+    `<option value="${valor}"${escolhido ? ' selected' : ''}>${escapeHtml(texto)}</option>`;
 
   return `
-    <div class="ferr-topo">
-      <p class="hint">Toque no nome para editar.</p>
-      <button class="btn btn-primary btn-sm" data-action="nova-ferramenta">${icon('plus')} Nova</button>
-    </div>
-    ${grupos.map(([titulo, lista]) => `
-      <h3 class="ferr-grupo">${titulo} <span>${lista.length}</span></h3>
-      <div class="painel-lista">${lista.map(linha).join('')}</div>`).join('')
-      || '<p class="empty">Nenhuma ferramenta cadastrada.</p>'}`;
+    <form class="ferr-card ferr-form" data-form="movFerramenta">
+      <h3>Nova movimentação</h3>
+      <label class="field">
+        <span>Item</span>
+        <select name="ferramenta" required data-mov="ferramenta">
+          ${opcao('', 'Escolha a ferramenta', !ferramenta)}
+          ${ferramentasAtivas().map(f => opcao(f.id,
+            `${rotuloFerramenta(f)}${f.comQuem ? ` (com ${nomeDaPessoa(f.comQuem.pessoaId, f.comQuem.nome)})` : ''}`,
+            f.id === ferramenta)).join('')}
+        </select>
+      </label>
+      <label class="field">
+        <span>Marceneiro</span>
+        <select name="pessoa" required data-mov="pessoa" ${devolucao && selecionada?.comQuem ? 'disabled' : ''}>
+          ${opcao('', 'Quem está levando?', !pessoa)}
+          ${pessoas.map(p => opcao(p.id, p.nome, p.id === pessoa)).join('')}
+        </select>
+      </label>
+      <label class="field">
+        <span>Ação</span>
+        <select name="acao" data-mov="acao">
+          ${opcao('retirada', 'Retirada', !devolucao)}
+          ${opcao('devolucao', 'Devolução', devolucao)}
+        </select>
+      </label>
+      <label class="field">
+        <span>Observações</span>
+        <input name="obs" data-mov="obs" autocomplete="off" maxlength="80" placeholder="Ex: obra, motivo..." value="${escapeHtml(obs)}"
+          ${devolucao ? 'disabled' : ''}>
+      </label>
+      <button class="btn btn-primary">${icon('plus')} Registrar</button>
+    </form>`;
 }
 
-// Fica separado para a busca atualizar só a lista enquanto a pessoa digita
+// Fica separado para a busca atualizar só a tabela enquanto a pessoa digita
 function historicoFerramentasHtml() {
   const termo = semAcento(state.ferrBusca.trim());
   const lista = [...state.movimentos]
     .map(m => ({ ...m, pessoa: nomeDaPessoa(m.pessoaId, m.pessoa) }))
     .filter(m => !termo || semAcento(`${m.pessoa} ${m.ferramenta} ${m.obs}`).includes(termo))
     .sort(porMaisRecente);
-  if (!lista.length) return `<p class="empty">${termo ? 'Nada encontrado.' : 'Nenhuma retirada registrada ainda.'}</p>`;
+  if (!lista.length) return `<p class="empty">${termo ? 'Nada encontrado.' : 'Nenhuma movimentação registrada ainda.'}</p>`;
   const LIMITE = 300; // o histórico completo fica na planilha de backup
   const aviso = lista.length > LIMITE
-    ? `<p class="busca-info">Mostrando os ${LIMITE} mais recentes de ${lista.length}. Use a busca ou a planilha de backup para ver os outros.</p>` : '';
+    ? `<p class="busca-info">Mostrando as ${LIMITE} mais recentes de ${lista.length}. Use a busca ou a planilha de backup para ver as outras.</p>` : '';
+  // "MAQ-09 · Serra circular Bosch" → código em negrito e nome ao lado
+  const item = texto => {
+    const [codigo, ...resto] = texto.split(' · ');
+    return resto.length ? `<b>${escapeHtml(codigo)}</b> <span class="muted">${escapeHtml(resto.join(' · '))}</span>` : escapeHtml(texto);
+  };
   return `${aviso}
-    <div class="painel-lista">
-      ${lista.slice(0, LIMITE).map(m => {
-        const retirada = m.acao === 'retirada';
-        return `
-          <div class="painel-linha">
-            <span class="tx-icon ${retirada ? 'out' : 'in'}">${icon(retirada ? 'arrowUp' : 'arrowDown')}</span>
-            <span class="painel-info">
-              <strong class="truncate">${escapeHtml(m.pessoa)} ${retirada ? 'retirou' : 'devolveu'}</strong>
-              <small class="truncate">${escapeHtml(m.ferramenta)}${m.obs ? ` · ${escapeHtml(m.obs)}` : ''}</small>
-            </span>
-            <span class="painel-valor"><small>${formatMomento(m.criadoEm)}</small></span>
-          </div>`;
-      }).join('')}
+    <div class="tabela-wrap">
+      <table class="tabela">
+        <thead><tr><th>Data/hora</th><th>Item</th><th>Marceneiro</th><th>Ação</th><th>Obs.</th></tr></thead>
+        <tbody>
+          ${lista.slice(0, LIMITE).map(m => `
+            <tr>
+              <td class="nowrap">${formatDataHora(m.criadoEm)}</td>
+              <td>${item(m.ferramenta)}</td>
+              <td>${escapeHtml(m.pessoa)}</td>
+              <td>${m.acao === 'retirada' ? '<span class="tag">Retirada</span>' : '<span class="tag tag-green">Devolução</span>'}</td>
+              <td class="muted">${escapeHtml(m.obs) || '-'}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
     </div>`;
 }
 
-function abaHistorico() {
+function abaMovimentacao() {
   return `
-    <label class="busca ferr-busca">
-      ${icon('search')}
-      <input type="search" data-busca-ferramentas data-manter-foco="busca-ferr" value="${escapeHtml(state.ferrBusca)}"
-        placeholder="Buscar pessoa, máquina ou obra" autocomplete="off" aria-label="Buscar no histórico">
-    </label>
-    <div id="ferr-historico">${historicoFerramentasHtml()}</div>`;
+    <div class="ferr-split">
+      ${formMovimentacao()}
+      <section>
+        <div class="ferr-topo">
+          <h3 class="ferr-titulo">Histórico de movimentações</h3>
+          <label class="busca ferr-busca">
+            ${icon('search')}
+            <input type="search" data-busca-ferramentas data-manter-foco="busca-ferr" value="${escapeHtml(state.ferrBusca)}"
+              placeholder="Buscar" autocomplete="off" aria-label="Buscar no histórico">
+          </label>
+        </div>
+        <div id="ferr-historico">${historicoFerramentasHtml()}</div>
+      </section>
+    </div>`;
 }
 
-function abaEquipe() {
+function abaPainelItens() {
+  const ativas = ferramentasAtivas();
+  const emUso = ativas.filter(f => f.comQuem).length;
+  const desativadas = state.ferramentas.filter(f => f.ativo === false);
+  // Tipo desconhecido (ou vazio) entra em "Outro", para nenhuma ferramenta sumir da lista
+  const tipoDe = f => (TIPOS_FERRAMENTA.includes(f.tipo) ? f.tipo : 'Outro');
+  const filtros = ['Todos', ...TIPOS_FERRAMENTA.filter(t => ativas.some(f => tipoDe(f) === t)), ...(desativadas.length ? ['Desativadas'] : [])];
+  const filtro = filtros.includes(state.ferrFiltro) ? state.ferrFiltro : 'Todos';
+  const lista = filtro === 'Desativadas' ? [...desativadas].sort(porCodigo)
+    : ativas.filter(f => filtro === 'Todos' || tipoDe(f) === filtro);
+
+  const status = f => (f.ativo === false ? '<span class="tag tag-cinza">Desativada</span>'
+    : f.comQuem ? '<span class="tag">Em uso</span>' : '<span class="tag tag-green">Disponível</span>');
+
+  const linhas = lista.map(f => `
+    <tr class="clicavel" data-action="editar-ferramenta" data-id="${f.id}" title="Editar">
+      <td><b>${escapeHtml(f.codigo)}</b></td>
+      <td>${escapeHtml(tipoDe(f))}</td>
+      <td>${escapeHtml(f.nome)}</td>
+      <td>${status(f)}</td>
+      <td>${f.comQuem ? escapeHtml(nomeDaPessoa(f.comQuem.pessoaId, f.comQuem.nome)) : '-'}</td>
+      <td class="nowrap muted">${f.comQuem ? formatDataHora(f.comQuem.desde) : '-'}</td>
+      <td class="tabela-icone">${icon('edit')}</td>
+    </tr>`).join('');
+
   // Quem tem o mesmo nome de uma conta do Caixa aparece marcado
   const comConta = new Set(state.marceneiros.map(m => chaveCliente(m.nome)));
-  const emUso = ferramentasEmUso();
-  const linha = p => {
-    const qtd = emUso.filter(f => f.comQuem.pessoaId === p.id).length;
-    const detalhe = [
-      p.ativo === false ? 'Desativado' : comConta.has(chaveCliente(p.nome)) ? 'Tem conta no Caixa' : 'Só o nome',
-      qtd ? `está com ${qtd} ferramenta${qtd > 1 ? 's' : ''}` : '',
-    ].filter(Boolean).join(' · ');
+  const pessoas = [...state.equipe].sort((a, b) => (a.ativo === false) - (b.ativo === false) || porNome(a, b));
+  const cartaoPessoa = p => {
+    const qtd = ativas.filter(f => f.comQuem?.pessoaId === p.id).length;
+    const selo = p.ativo === false ? '<span class="tag tag-cinza">Desativado</span>'
+      : comConta.has(chaveCliente(p.nome)) ? '<span class="tag tag-green">Conta no Caixa</span>'
+      : '<span class="tag tag-cinza">Sem conta no Caixa</span>';
     return `
-      <button class="painel-linha${p.ativo === false ? ' inativo' : ''}" data-action="editar-pessoa" data-id="${p.id}">
+      <button class="pessoa-card${p.ativo === false ? ' inativo' : ''}" data-action="editar-pessoa" data-id="${p.id}" title="Editar">
         <span class="avatar sm">${escapeHtml(initials(p.nome))}</span>
-        <span class="painel-info"><strong class="truncate">${escapeHtml(p.nome)}</strong><small>${detalhe}</small></span>
-        ${icon('edit')}
+        <span class="painel-info">
+          <strong class="truncate">${escapeHtml(p.nome)}</strong>
+          <small>${selo}${qtd ? ` · ${qtd} em uso` : ''}</small>
+        </span>
       </button>`;
   };
-  const pessoas = [...state.equipe].sort((a, b) => (a.ativo === false) - (b.ativo === false) || porNome(a, b));
+
   return `
-    <div class="ferr-topo">
-      <p class="hint">Não precisa ter conta no app.</p>
-      <button class="btn btn-primary btn-sm" data-action="nova-pessoa">${icon('plus')} Adicionar</button>
+    <div class="painel-cards painel-cards-3">
+      <div><small>Itens cadastrados</small><strong>${ativas.length}</strong></div>
+      <div><small>Disponíveis</small><strong class="pos">${ativas.length - emUso}</strong></div>
+      <div><small>Em uso</small><strong class="tone-amber">${emUso}</strong></div>
     </div>
-    ${pessoas.length ? `<div class="painel-lista">${pessoas.map(linha).join('')}</div>` : '<p class="empty">Ninguém cadastrado.</p>'}`;
+
+    <div class="ferr-topo">
+      <div class="chips">
+        ${filtros.map(t => `<button type="button" class="chip${t === filtro ? ' active' : ''}" data-action="ferr-filtro" data-filtro="${t}">${t}</button>`).join('')}
+      </div>
+      <button class="btn btn-primary btn-sm" data-action="nova-ferramenta">${icon('plus')} Nova ferramenta</button>
+    </div>
+    <div class="tabela-wrap">
+      <table class="tabela">
+        <thead><tr><th>Código</th><th>Categoria</th><th>Item</th><th>Status</th><th>Com quem</th><th>Desde</th><th></th></tr></thead>
+        <tbody>${linhas || '<tr><td colspan="7" class="empty">Nenhuma ferramenta aqui.</td></tr>'}</tbody>
+      </table>
+    </div>
+
+    <div class="ferr-topo ferr-topo-pessoas">
+      <h3 class="ferr-titulo">Marceneiros <span class="badge badge-cinza">${state.equipe.filter(p => p.ativo !== false).length}</span></h3>
+      <button class="btn btn-primary btn-sm" data-action="nova-pessoa">${icon('plus')} Adicionar pessoa</button>
+    </div>
+    <p class="hint ferr-dica">Não precisa ter conta no app. Toque no nome para editar.</p>
+    ${pessoas.length ? `<div class="pessoas-grid">${pessoas.map(cartaoPessoa).join('')}</div>` : '<p class="empty">Ninguém cadastrado.</p>'}`;
 }
 
 function viewFerramentas() {
@@ -954,7 +990,7 @@ function viewFerramentas() {
       <span class="icon-btn-espaco"></span>
     </header>`;
 
-  if (!ferramentasCarregadas()) return `<div class="conta">${header}<p class="empty">Carregando…</p></div>`;
+  if (!ferramentasCarregadas()) return `<div class="ferr">${header}<p class="empty">Carregando…</p></div>`;
 
   // Primeira vez: oferece cadastrar a lista da planilha
   if (!state.ferramentas.length && !state.equipe.length) {
@@ -972,43 +1008,15 @@ function viewFerramentas() {
       </div>`;
   }
 
-  const ativas = ferramentasAtivas();
-  const emUso = ativas.filter(f => f.comQuem).length;
-  const ABAS = [['uso', 'Em uso'], ['itens', 'Itens'], ['historico', 'Histórico'], ['equipe', 'Equipe']];
-  const conteudo = { uso: abaEmUso, itens: abaItens, historico: abaHistorico, equipe: abaEquipe }[state.ferrAba]();
-
+  const ABAS = [['mov', 'Movimentação'], ['painel', 'Painel de itens']];
   return `
-    <div class="conta">
+    <div class="ferr">
       ${header}
-
-      <div class="painel-cards">
-        <div><small>Fora da empresa</small><strong class="${emUso ? 'tone-amber' : ''}">${emUso}</strong></div>
-        <div><small>Na empresa</small><strong class="pos">${ativas.length - emUso}</strong></div>
-      </div>
-
-      <button class="btn btn-primary btn-block ferr-retirar" data-action="retirar-ferramenta">${icon('arrowUp')} Registrar retirada</button>
-
-      <div class="segmented segmented-4 ferr-abas">
+      <div class="segmented ferr-abas">
         ${ABAS.map(([id, rotulo]) => `<button type="button" class="${state.ferrAba === id ? 'active' : ''}" data-action="ferr-aba" data-aba="${id}">${rotulo}</button>`).join('')}
       </div>
-
-      ${conteudo}
+      ${state.ferrAba === 'painel' ? abaPainelItens() : abaMovimentacao()}
     </div>`;
-}
-
-// Janela de retirada: só aparecem as ferramentas que estão na empresa e as pessoas ativas
-function abrirRetiradaFerramenta(ferramentaId = '') {
-  const disponiveis = ferramentasAtivas().filter(f => !f.comQuem);
-  if (!disponiveis.length) return fail('Todas as ferramentas estão em uso.');
-  const pessoas = state.equipe.filter(p => p.ativo !== false).sort(porNome);
-  if (!pessoas.length) return fail('Cadastre alguém na aba Equipe primeiro.');
-
-  const form = $('#dlg-retirar-ferramenta form');
-  form.elements.ferramenta.innerHTML = '<option value="">Escolha a ferramenta</option>'
-    + disponiveis.map(f => `<option value="${f.id}">${escapeHtml(rotuloFerramenta(f))}</option>`).join('');
-  form.elements.pessoa.innerHTML = '<option value="">Quem está levando?</option>'
-    + pessoas.map(p => `<option value="${p.id}">${escapeHtml(p.nome)}</option>`).join('');
-  openDialog('dlg-retirar-ferramenta', { ferramenta: ferramentaId });
 }
 
 function abrirFerramenta(id = '') {
@@ -1021,7 +1029,7 @@ function abrirFerramenta(id = '') {
     ferramentaId: id,
     codigo: f?.codigo ?? '',
     nome: f?.nome ?? '',
-    tipo: f?.tipo ?? TIPOS_FERRAMENTA[0],
+    tipo: TIPOS_FERRAMENTA.includes(f?.tipo) ? f.tipo : f ? 'Outro' : TIPOS_FERRAMENTA[0],
   });
 }
 
@@ -1200,7 +1208,7 @@ function aoMudarLogin(user) {
   document.querySelectorAll('dialog[open]').forEach(d => d.close()); // nada fica aberto de outra sessão
   Object.assign(state, {
     user, marceneiros: [], lancamentos: [], pedidos: [], saldoOculto: false, filtro: filtroInicial(), busca: '',
-    ferramentas: [], equipe: [], movimentos: [], ferrAba: 'uso', ferrBusca: '',
+    ferramentas: [], equipe: [], movimentos: [], ferrAba: 'mov', ferrBusca: '', ferrFiltro: 'Todos', ferrForm: formMovVazio(),
   });
   state.carregados.clear();
 
@@ -1857,32 +1865,18 @@ const actions = {
     go('painel');
   },
   'abrir-ferramentas': () => {
-    state.ferrAba = 'uso';
+    state.ferrAba = 'mov';
     state.ferrBusca = '';
+    state.ferrForm = formMovVazio();
     go('ferramentas');
   },
   'ferr-aba': el => {
     state.ferrAba = el.dataset.aba;
     render();
   },
-  'retirar-ferramenta': el => abrirRetiradaFerramenta(el.dataset.id),
-  'devolver-ferramenta': async el => {
-    if (!exigeInternet()) return;
-    const f = state.ferramentas.find(x => x.id === el.dataset.id);
-    const pessoa = nomeDaPessoa(f.comQuem.pessoaId, f.comQuem.nome);
-    const confirmado = await confirmar({
-      titulo: 'Devolver ferramenta',
-      corpo: `<p><b>${escapeHtml(pessoa)}</b> devolveu <b>${escapeHtml(rotuloFerramenta(f))}</b>?</p>`,
-      botao: 'Confirmar devolução',
-      tom: 'green',
-    });
-    if (!confirmado) return;
-    try {
-      await Store.devolverFerramenta(f);
-      toast('Devolução registrada.');
-    } catch (err) {
-      fail(mensagemErro(err));
-    }
+  'ferr-filtro': el => {
+    state.ferrFiltro = el.dataset.filtro;
+    render();
   },
   'nova-ferramenta': () => abrirFerramenta(),
   'editar-ferramenta': el => abrirFerramenta(el.dataset.id),
@@ -2204,13 +2198,26 @@ const forms = {
     avisarMarceneiro(contaAtual(), 'Compra parcelada', `${desc} · ${parcelas}x de ${formatMoney(total / parcelas)}`);
   },
 
-  async retirarFerramenta(f) {
-    const ferramenta = state.ferramentas.find(x => x.id === f.ferramenta.value);
-    const pessoa = pessoaDe(f.pessoa.value);
+  // Retirada ou devolução, pelo formulário da aba Movimentação
+  async movFerramenta() {
+    const { ferramenta: id, pessoa: pessoaId, acao, obs } = state.ferrForm;
+    const ferramenta = state.ferramentas.find(x => x.id === id);
     if (!ferramenta) return fail('Escolha a ferramenta.');
-    if (!pessoa) return fail('Escolha quem está levando.');
-    await Store.retirarFerramenta(ferramenta, pessoa, f.obs.value.trim());
-    toast(`${ferramenta.nome} com ${pessoa.nome}.`);
+    if (acao === 'retirada') {
+      if (ferramenta.comQuem) {
+        return fail(`Essa ferramenta já está com ${nomeDaPessoa(ferramenta.comQuem.pessoaId, ferramenta.comQuem.nome)}.`);
+      }
+      const pessoa = pessoaDe(pessoaId);
+      if (!pessoa) return fail('Escolha o marceneiro.');
+      await Store.retirarFerramenta(ferramenta, pessoa, obs.trim());
+      toast(`Retirada registrada: ${ferramenta.nome} com ${pessoa.nome}.`);
+    } else {
+      if (!ferramenta.comQuem) return fail('Essa ferramenta não está em uso.');
+      await Store.devolverFerramenta(ferramenta);
+      toast(`Devolução registrada: ${ferramenta.nome}.`);
+    }
+    state.ferrForm = formMovVazio();
+    render();
   },
 
   async ferramenta(f) {
@@ -2311,6 +2318,7 @@ document.addEventListener('input', e => {
     state.busca = e.target.value;
     $('#extrato-conteudo').innerHTML = extratoConteudo(contaAtual());
   }
+  if (e.target.matches('input[data-mov]')) state.ferrForm[e.target.dataset.mov] = e.target.value;
   if (e.target.matches('[data-busca-ferramentas]')) {
     state.ferrBusca = e.target.value;
     $('#ferr-historico').innerHTML = historicoFerramentasHtml();
@@ -2319,6 +2327,13 @@ document.addEventListener('input', e => {
 
 document.addEventListener('change', e => {
   if (e.target.name === 'liberacao') atualizarAgendaServico(e.target.form);
+  // Formulário de movimentação de ferramentas: guarda a escolha e redesenha (a ação e o marceneiro acompanham a ferramenta)
+  if (e.target.matches('select[data-mov]')) {
+    const campo = e.target.dataset.mov;
+    if (campo === 'ferramenta') escolherFerramentaMov(e.target.value);
+    else state.ferrForm[campo] = e.target.value;
+    if (campo !== 'pessoa') render();
+  }
 });
 
 // Aviso de "sem internet" no topo, que some sozinho quando a conexão volta

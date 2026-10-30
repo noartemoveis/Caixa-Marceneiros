@@ -296,35 +296,6 @@
 
   <!-- ==================== FERRAMENTAS (admin) ==================== -->
 
-  <!-- Retirada de ferramenta -->
-  <dialog id="dlg-retirar-ferramenta">
-    <form class="sheet" data-form="retirarFerramenta">
-      <div class="sheet-head">
-        <div>
-          <h3>Registrar retirada</h3>
-          <p class="hint">Quem está levando qual ferramenta</p>
-        </div>
-        <button type="button" class="icon-btn sm" data-action="close" aria-label="Fechar">✕</button>
-      </div>
-      <label class="field">
-        <span>Ferramenta</span>
-        <select name="ferramenta" required></select>
-      </label>
-      <label class="field">
-        <span>Com quem</span>
-        <select name="pessoa" required></select>
-      </label>
-      <label class="field">
-        <span>Obra ou observação (opcional)</span>
-        <input name="obs" autocomplete="off" maxlength="80" placeholder="Ex: obra da Glaucia">
-      </label>
-      <div class="sheet-actions">
-        <button type="button" class="btn btn-ghost" data-action="close">Cancelar</button>
-        <button class="btn btn-primary">Registrar</button>
-      </div>
-    </form>
-  </dialog>
-
   <!-- Nova ferramenta / editar ferramenta -->
   <dialog id="dlg-ferramenta">
     <form class="sheet" data-form="ferramenta">
