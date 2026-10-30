@@ -346,7 +346,18 @@ button.painel-linha:hover { background: var(--bg); }
 .ferr-topo { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
 .ferr-topo-pessoas { margin-top: 28px; margin-bottom: 4px; }
 .ferr-titulo { font-size: 13px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; display: flex; align-items: center; gap: 8px; }
+.ferr-filtros { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.ferr-select {
+  flex: 1; min-width: 160px; max-width: 240px; padding: 9px 12px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  font: inherit; font-size: 14px; color: var(--text);
+}
+.ferr-select:focus { outline: none; border-color: var(--accent); }
 .ferr-busca { flex: 1; min-width: 160px; max-width: 260px; }
+.tabela .tabela-acoes { width: 1%; white-space: nowrap; text-align: right; color: var(--muted); }
+.tabela .tabela-acoes .btn { margin-right: 8px; padding: 5px 10px; font-size: 12px; }
+.tabela .tabela-acoes svg { width: 15px; height: 15px; vertical-align: middle; }
+.tabela td small { font-size: 11px; }
 .ferr-busca input { padding: 8px 0; font-size: 14px; }
 .ferr-dica { margin: 0 2px 12px; }
 .painel-cards-3 { grid-template-columns: repeat(3, 1fr); margin-bottom: 18px; }
@@ -355,7 +366,8 @@ button.painel-linha:hover { background: var(--bg); }
 
 /* Tabelas (histórico e painel de itens); no celular rolam para o lado */
 .tabela-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
-.tabela { width: 100%; min-width: 640px; border-collapse: collapse; font-size: 13px; }
+.tabela { width: 100%; border-collapse: collapse; font-size: 13px; }
+@media (max-width: 819px) { .tabela { min-width: 640px; } } /* no celular a tabela rola para o lado */
 .tabela td:first-child, .tabela th, .tabela .tag, .tabela b { white-space: nowrap; }
 .tabela th { padding: 10px 12px; text-align: left; color: var(--muted); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; border-bottom: 1px solid var(--border); }
 .tabela td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }

@@ -331,6 +331,34 @@
     </form>
   </dialog>
 
+  <!-- Corrigir ou excluir uma movimentação do histórico -->
+  <dialog id="dlg-movimento">
+    <form class="sheet" data-form="editarMovimento">
+      <input type="hidden" name="movId">
+      <div class="sheet-head">
+        <div>
+          <h3>Corrigir movimentação</h3>
+          <p class="hint" id="movimento-resumo"></p>
+        </div>
+        <button type="button" class="icon-btn sm" data-action="close" aria-label="Fechar">✕</button>
+      </div>
+      <label class="field">
+        <span>Marceneiro</span>
+        <select name="pessoa" required></select>
+      </label>
+      <label class="field" id="movimento-obs">
+        <span>Observações</span>
+        <input name="obs" autocomplete="off" maxlength="80" placeholder="Ex: obra, motivo...">
+      </label>
+      <ul class="historico" id="movimento-historico" hidden></ul>
+      <div class="sheet-actions">
+        <button type="button" class="btn btn-ghost" data-action="close">Cancelar</button>
+        <button class="btn btn-primary">Salvar</button>
+      </div>
+      <button type="button" class="btn btn-link-danger" data-action="excluir-movimento">Excluir esta movimentação</button>
+    </form>
+  </dialog>
+
   <!-- Pessoa da equipe (não precisa ter conta no app) -->
   <dialog id="dlg-pessoa">
     <form class="sheet" data-form="pessoa">

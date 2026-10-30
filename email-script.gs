@@ -248,9 +248,11 @@ function fazerBackup() {
     []);
 
   escreverAba(planilha.insertSheet('Retiradas de ferramentas'),
-    ['Quando', 'Pessoa', 'Ação', 'Ferramenta', 'Obra'],
+    ['Quando', 'Pessoa', 'Ação', 'Ferramenta', 'Obra', 'Situação'],
     movimentos.map(m => [quando(m.criadoEm), pessoa(m.pessoaId, m.pessoa),
-      m.acao === 'retirada' ? 'Retirada' : 'Devolução', m.ferramenta, m.obs || '']),
+      m.acao === 'retirada' ? 'Retirada' : 'Devolução', m.ferramenta, m.obs || '',
+      // Correções feitas no app: a excluída continua aqui, marcada
+      m.excluido ? 'Excluída em ' + quando(m.excluidoEm) : (m.alteracoes || []).length ? 'Corrigida' : 'Normal']),
     []);
 
   DriveApp.getFileById(planilha.getId()).moveTo(pastaDeBackup());

@@ -15,7 +15,8 @@
    Controle de ferramentas (só o administrador vê e mexe):
      ferramentas/{id}  → { codigo, nome, tipo, ativo, comQuem: null | { pessoaId, nome, desde, obs }, criadoEm }
      equipe/{id}       → { nome, ativo, criadoEm }  (quem pega ferramenta; não precisa ter conta no Caixa)
-     movimentos/{id}   → { ferramentaId, ferramenta, pessoaId, pessoa, acao: 'retirada' | 'devolucao', obs, criadoEm }
+     movimentos/{id}   → { ferramentaId, ferramenta, pessoaId, pessoa, acao: 'retirada' | 'devolucao', obs, criadoEm,
+                           alteracoes?, excluido?, excluidoEm? }
    ========================================================= */
 
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
@@ -320,6 +321,28 @@ export async function devolverFerramenta(ferramenta) {
       acao: 'devolucao', obs: '', criadoEm: serverTimestamp(),
     });
   });
+}
+
+// Correções no histórico, como no extrato: nada é apagado de verdade.
+// Editar guarda como era antes; excluir só marca (continua no backup).
+// comQuem: undefined = não mexe na ferramenta; null = fica na empresa; objeto = fica com essa pessoa.
+// (Usado quando a movimentação corrigida é a última da ferramenta e muda quem está com ela.)
+
+export async function editarMovimento(mov, { pessoa, obs }, comQuem) {
+  const batch = writeBatch(db);
+  batch.update(doc(db, 'movimentos', mov.id), {
+    pessoaId: pessoa.id, pessoa: pessoa.nome, obs,
+    alteracoes: arrayUnion({ em: new Date().toISOString(), antes: { pessoa: mov.pessoa, obs: mov.obs || '' } }),
+  });
+  if (comQuem !== undefined) batch.update(doc(db, 'ferramentas', mov.ferramentaId), { comQuem });
+  await batch.commit();
+}
+
+export async function excluirMovimento(mov, comQuem) {
+  const batch = writeBatch(db);
+  batch.update(doc(db, 'movimentos', mov.id), { excluido: true, excluidoEm: serverTimestamp() });
+  if (comQuem !== undefined) batch.update(doc(db, 'ferramentas', mov.ferramentaId), { comQuem });
+  await batch.commit();
 }
 
 // ---------- Avisos (e-mail e notificação no celular) ----------

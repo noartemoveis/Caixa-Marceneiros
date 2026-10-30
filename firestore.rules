@@ -66,9 +66,10 @@ service cloud.firestore {
       allow read, write: if isAdmin();
     }
 
-    // Histórico de retiradas e devoluções: só se acrescenta, nunca se apaga
+    // Histórico de retiradas e devoluções: pode ser corrigido, mas nunca apagado
+    // (a exclusão só marca o registro, que continua no backup)
     match /movimentos/{id} {
-      allow read, create: if isAdmin();
+      allow read, create, update: if isAdmin();
     }
 
     // Aparelhos que recebem notificação: cada pessoa só cadastra o próprio aparelho,

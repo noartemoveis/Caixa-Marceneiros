@@ -197,6 +197,7 @@ const state = {
   ferrAba: 'mov',          // mov (movimentação e histórico) | painel (itens e marceneiros)
   ferrBusca: '',           // busca no histórico de ferramentas
   ferrFiltro: 'Todos',     // categoria no painel de itens
+  ferrPessoa: '',          // marceneiro escolhido no histórico ('' = todos)
   ferrForm: { ferramenta: '', pessoa: '', acao: 'retirada', obs: '' }, // formulário de movimentação
 };
 
@@ -500,7 +501,7 @@ function viewAdmin() {
       </div>
       <div class="topbar-actions">
         ${botaoAvisos()}
-        <button class="icon-btn" data-action="abrir-ferramentas" title="Ferramentas">${icon('tool')}</button>
+        ${botaoFerramentas()}
         <button class="icon-btn com-badge" data-action="ver-pedidos" title="Pedidos de retirada">
           ${icon('inbox')}${pendentes.length ? `<span class="badge">${pendentes.length}</span>` : ''}
         </button>
@@ -862,34 +863,63 @@ function formMovimentacao() {
     </form>`;
 }
 
-// Fica separado para a busca atualizar só a tabela enquanto a pessoa digita
-function historicoFerramentasHtml() {
+// Movimentações que contam (as excluídas ficam só no banco e no backup)
+const movimentosAtivos = () => state.movimentos.filter(m => !m.excluido);
+const movimentoDe = id => state.movimentos.find(m => m.id === id);
+
+// Ferramenta fora há muitos dias aparece em vermelho e acende o número na chave inglesa
+const DIAS_ALERTA = 7;
+const diasFora = f => Math.floor((Date.now() - momento(f.comQuem.desde)) / 86400000);
+const atrasada = f => Boolean(f.comQuem) && diasFora(f) >= DIAS_ALERTA;
+
+// Histórico com o filtro da tela (marceneiro e busca), do mais recente para o mais antigo
+function historicoFiltrado() {
   const termo = semAcento(state.ferrBusca.trim());
-  const lista = [...state.movimentos]
+  return movimentosAtivos()
+    .filter(m => !state.ferrPessoa || m.pessoaId === state.ferrPessoa)
     .map(m => ({ ...m, pessoa: nomeDaPessoa(m.pessoaId, m.pessoa) }))
     .filter(m => !termo || semAcento(`${m.pessoa} ${m.ferramenta} ${m.obs}`).includes(termo))
     .sort(porMaisRecente);
-  if (!lista.length) return `<p class="empty">${termo ? 'Nada encontrado.' : 'Nenhuma movimentação registrada ainda.'}</p>`;
-  const LIMITE = 300; // o histórico completo fica na planilha de backup
+}
+
+// "MAQ-09 · Serra circular Bosch" → código em negrito e nome ao lado
+function itemHtml(texto) {
+  const [codigo, ...resto] = texto.split(' · ');
+  return resto.length ? `<b>${escapeHtml(codigo)}</b> <span class="muted">${escapeHtml(resto.join(' · '))}</span>` : escapeHtml(texto);
+}
+
+const tagAcao = m => (m.acao === 'retirada' ? '<span class="tag">Retirada</span>' : '<span class="tag tag-green">Devolução</span>');
+
+// Chave inglesa no topo da tela inicial: o número é quantas estão fora (vermelho se alguma passou do prazo)
+function botaoFerramentas() {
+  const fora = ferramentasCarregadas() ? ferramentasEmUso() : [];
+  const titulo = fora.length ? `Ferramentas: ${fora.length} fora da empresa` : 'Ferramentas';
+  const numero = fora.length
+    ? `<span class="badge${fora.some(atrasada) ? '' : ' badge-cinza'}">${fora.length}</span>` : '';
+  return `<button class="icon-btn com-badge" data-action="abrir-ferramentas" title="${titulo}">${icon('tool')}${numero}</button>`;
+}
+
+// Fica separado para a busca atualizar só a tabela enquanto a pessoa digita
+function historicoFerramentasHtml() {
+  const lista = historicoFiltrado();
+  const filtrando = state.ferrBusca.trim() || state.ferrPessoa;
+  if (!lista.length) return `<p class="empty">${filtrando ? 'Nada encontrado.' : 'Nenhuma movimentação registrada ainda.'}</p>`;
+  const LIMITE = 300; // o histórico completo fica na planilha de backup e no PDF
   const aviso = lista.length > LIMITE
-    ? `<p class="busca-info">Mostrando as ${LIMITE} mais recentes de ${lista.length}. Use a busca ou a planilha de backup para ver as outras.</p>` : '';
-  // "MAQ-09 · Serra circular Bosch" → código em negrito e nome ao lado
-  const item = texto => {
-    const [codigo, ...resto] = texto.split(' · ');
-    return resto.length ? `<b>${escapeHtml(codigo)}</b> <span class="muted">${escapeHtml(resto.join(' · '))}</span>` : escapeHtml(texto);
-  };
+    ? `<p class="busca-info">Mostrando as ${LIMITE} mais recentes de ${lista.length}. O PDF e a planilha de backup trazem todas.</p>` : '';
   return `${aviso}
     <div class="tabela-wrap">
       <table class="tabela">
-        <thead><tr><th>Data/hora</th><th>Item</th><th>Marceneiro</th><th>Ação</th><th>Obs.</th></tr></thead>
+        <thead><tr><th>Data/hora</th><th>Item</th><th>Marceneiro</th><th>Ação</th><th>Obs.</th><th></th></tr></thead>
         <tbody>
           ${lista.slice(0, LIMITE).map(m => `
-            <tr>
+            <tr class="clicavel" data-action="ver-movimento" data-id="${m.id}" title="Corrigir ou excluir">
               <td class="nowrap">${formatDataHora(m.criadoEm)}</td>
-              <td>${item(m.ferramenta)}</td>
+              <td>${itemHtml(m.ferramenta)}</td>
               <td>${escapeHtml(m.pessoa)}</td>
-              <td>${m.acao === 'retirada' ? '<span class="tag">Retirada</span>' : '<span class="tag tag-green">Devolução</span>'}</td>
-              <td class="muted">${escapeHtml(m.obs) || '-'}</td>
+              <td>${tagAcao(m)}</td>
+              <td class="muted">${escapeHtml(m.obs) || '-'}${m.alteracoes?.length ? ' <small>(corrigida)</small>' : ''}</td>
+              <td class="tabela-icone">${icon('edit')}</td>
             </tr>`).join('')}
         </tbody>
       </table>
@@ -897,12 +927,20 @@ function historicoFerramentasHtml() {
 }
 
 function abaMovimentacao() {
+  const pessoas = [...state.equipe].sort(porNome);
   return `
     <div class="ferr-split">
       ${formMovimentacao()}
       <section>
         <div class="ferr-topo">
           <h3 class="ferr-titulo">Histórico de movimentações</h3>
+          <button class="btn btn-ghost btn-sm" data-action="pdf-ferramentas">${icon('print')} PDF</button>
+        </div>
+        <div class="ferr-filtros">
+          <select class="ferr-select" data-ferr-pessoa aria-label="Filtrar por marceneiro">
+            <option value="">Todos os marceneiros</option>
+            ${pessoas.map(p => `<option value="${p.id}"${p.id === state.ferrPessoa ? ' selected' : ''}>${escapeHtml(p.nome)}</option>`).join('')}
+          </select>
           <label class="busca ferr-busca">
             ${icon('search')}
             <input type="search" data-busca-ferramentas data-manter-foco="busca-ferr" value="${escapeHtml(state.ferrBusca)}"
@@ -925,8 +963,11 @@ function abaPainelItens() {
   const lista = filtro === 'Desativadas' ? [...desativadas].sort(porCodigo)
     : ativas.filter(f => filtro === 'Todos' || tipoDe(f) === filtro);
 
-  const status = f => (f.ativo === false ? '<span class="tag tag-cinza">Desativada</span>'
-    : f.comQuem ? '<span class="tag">Em uso</span>' : '<span class="tag tag-green">Disponível</span>');
+  const status = f => {
+    if (f.ativo === false) return '<span class="tag tag-cinza">Desativada</span>';
+    if (!f.comQuem) return '<span class="tag tag-green">Disponível</span>';
+    return atrasada(f) ? `<span class="tag tag-red">Fora há ${diasFora(f)} dias</span>` : '<span class="tag">Em uso</span>';
+  };
 
   const linhas = lista.map(f => `
     <tr class="clicavel" data-action="editar-ferramenta" data-id="${f.id}" title="Editar">
@@ -935,8 +976,11 @@ function abaPainelItens() {
       <td>${escapeHtml(f.nome)}</td>
       <td>${status(f)}</td>
       <td>${f.comQuem ? escapeHtml(nomeDaPessoa(f.comQuem.pessoaId, f.comQuem.nome)) : '-'}</td>
-      <td class="nowrap muted">${f.comQuem ? formatDataHora(f.comQuem.desde) : '-'}</td>
-      <td class="tabela-icone">${icon('edit')}</td>
+      <td class="nowrap ${atrasada(f) ? 'neg' : 'muted'}">${f.comQuem ? formatDataHora(f.comQuem.desde) : '-'}</td>
+      <td class="tabela-acoes">
+        ${f.comQuem && f.ativo !== false ? `<button class="btn btn-ghost btn-sm" data-action="devolver-ferramenta" data-id="${f.id}">Devolver</button>` : ''}
+        ${icon('edit')}
+      </td>
     </tr>`).join('');
 
   // Quem tem o mesmo nome de uma conta do Caixa aparece marcado
@@ -1043,6 +1087,107 @@ function abrirPessoa(id = '') {
   ativar.hidden = !p;
   ativar.textContent = p?.ativo === false ? 'Reativar esta pessoa' : 'Desativar esta pessoa';
   openDialog('dlg-pessoa', { pessoaId: id, nome: p?.nome ?? '' });
+}
+
+// ---------- Correção do histórico ----------
+
+const ultimoMovimento = ferramentaId => movimentosAtivos().filter(m => m.ferramentaId === ferramentaId).sort(porMaisRecente)[0];
+
+// Janela para trocar a pessoa ou a observação de uma movimentação (ou excluir)
+function abrirMovimento(id) {
+  const m = movimentoDe(id);
+  if (!m) return;
+  const form = $('#dlg-movimento form');
+  const pessoas = state.equipe.filter(p => p.ativo !== false || p.id === m.pessoaId).sort(porNome);
+  form.elements.pessoa.innerHTML = pessoas.map(p => `<option value="${p.id}">${escapeHtml(p.nome)}</option>`).join('');
+  $('#movimento-resumo').innerHTML = `${m.acao === 'retirada' ? 'Retirada' : 'Devolução'} de <b>${escapeHtml(m.ferramenta)}</b> em ${formatDataHora(m.criadoEm)}`;
+  $('#movimento-obs').hidden = m.acao !== 'retirada';
+  const antes = (m.alteracoes ?? []).map(a =>
+    `<li><b>Corrigida em ${formatMomento({ toDate: () => new Date(a.em) })}</b><br>Antes: ${escapeHtml(a.antes.pessoa)}${a.antes.obs ? ` · ${escapeHtml(a.antes.obs)}` : ''}</li>`).join('');
+  $('#movimento-historico').innerHTML = antes;
+  $('#movimento-historico').hidden = !antes;
+  openDialog('dlg-movimento', { movId: m.id, pessoa: m.pessoaId, obs: m.obs || '' });
+}
+
+// O que muda na ferramenta ao excluir esta movimentação (undefined = nada)
+function comQuemSemMovimento(m) {
+  if (ultimoMovimento(m.ferramentaId)?.id !== m.id) return undefined; // só a última muda a situação de hoje
+  const f = state.ferramentas.find(x => x.id === m.ferramentaId);
+  if (m.acao === 'retirada') return f?.comQuem ? null : undefined; // a retirada some: volta para a empresa
+  if (f?.comQuem) return undefined;
+  // A devolução some: a ferramenta volta a ficar com quem fez a retirada anterior
+  const anterior = movimentosAtivos()
+    .filter(x => x.ferramentaId === m.ferramentaId && x.id !== m.id)
+    .sort(porMaisRecente)[0];
+  return anterior?.acao === 'retirada'
+    ? { pessoaId: anterior.pessoaId, nome: anterior.pessoa, desde: anterior.criadoEm, obs: anterior.obs || '' }
+    : undefined;
+}
+
+// ---------- Relatório de ferramentas em PDF ----------
+// Usa o filtro da tela: um marceneiro (o que está com ele e tudo que pegou e devolveu) ou todos
+
+async function imprimirFerramentas() {
+  const p = pessoaDe(state.ferrPessoa);
+  const lista = historicoFiltrado();
+  const fora = ferramentasEmUso()
+    .filter(f => !p || f.comQuem.pessoaId === p.id)
+    .sort((a, b) => momento(a.comQuem.desde) - momento(b.comQuem.desde));
+  const titulo = p ? `Ferramentas de ${p.nome}` : 'Controle de ferramentas';
+  const rotuloFora = p ? 'Com ele agora' : 'Fora da empresa agora';
+  const busca = state.ferrBusca.trim();
+  const emitidoEm = new Date().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+
+  const linhasFora = fora.map(f => `
+    <tr>
+      <td>${escapeHtml(rotuloFerramenta(f))}</td>
+      ${p ? '' : `<td>${escapeHtml(nomeDaPessoa(f.comQuem.pessoaId, f.comQuem.nome))}</td>`}
+      <td>${formatDataHora(f.comQuem.desde)}</td>
+      <td class="num${atrasada(f) ? ' neg' : ''}">${diasFora(f)}</td>
+      <td>${escapeHtml(f.comQuem.obs || '')}</td>
+    </tr>`).join('');
+  const linhasHistorico = lista.map(m => `
+    <tr>
+      <td>${formatDataHora(m.criadoEm)}</td>
+      <td>${escapeHtml(m.ferramenta)}</td>
+      ${p ? '' : `<td>${escapeHtml(m.pessoa)}</td>`}
+      <td>${m.acao === 'retirada' ? 'Retirada' : 'Devolução'}</td>
+      <td>${escapeHtml(m.obs || '')}</td>
+    </tr>`).join('');
+
+  const area = $('#print-area');
+  area.innerHTML = `
+    <header class="pdf-topo">
+      <img src="logo.png" alt="Nô Art Móveis">
+      <div><h1>${escapeHtml(titulo)}</h1><p>Controle de ferramentas</p></div>
+    </header>
+    <section class="pdf-dados">
+      <div><span>Marceneiro</span><strong>${p ? escapeHtml(p.nome) : 'Todos'}</strong></div>
+      <div><span>Emitido em</span><strong>${emitidoEm}</strong></div>
+      <div><span>${rotuloFora}</span><strong>${fora.length} ferramenta(s)</strong></div>
+      <div><span>Movimentações${busca ? ` (busca: ${escapeHtml(busca)})` : ''}</span><strong>${lista.length}</strong></div>
+    </section>
+
+    <h2 class="pdf-subtitulo">${rotuloFora}</h2>
+    <table class="pdf-tabela">
+      <thead><tr><th>Ferramenta</th>${p ? '' : '<th>Com quem</th>'}<th>Desde</th><th class="num">Dias</th><th>Obra</th></tr></thead>
+      <tbody>${linhasFora || `<tr><td colspan="${p ? 4 : 5}" class="pdf-vazio">Nenhuma ferramenta fora.</td></tr>`}</tbody>
+    </table>
+
+    <h2 class="pdf-subtitulo">Histórico</h2>
+    <table class="pdf-tabela">
+      <thead><tr><th>Data/hora</th><th>Ferramenta</th>${p ? '' : '<th>Marceneiro</th>'}<th>Ação</th><th>Obs.</th></tr></thead>
+      <tbody>${linhasHistorico || `<tr><td colspan="${p ? 4 : 5}" class="pdf-vazio">Nenhuma movimentação.</td></tr>`}</tbody>
+    </table>
+
+    <p class="pdf-rodape">Nô Art Móveis · Documento gerado pelo Caixa dos Marceneiros</p>`;
+  await area.querySelector('img').decode().catch(() => {}); // espera o logo carregar
+
+  // O título vira o nome do arquivo ao salvar em PDF
+  const tituloOriginal = document.title;
+  document.title = `${titulo} - ${today()}`;
+  window.addEventListener('afterprint', () => { document.title = tituloOriginal; }, { once: true });
+  window.print();
 }
 
 // Parte de baixo do extrato (resumo, agendados e lista). Fica separada para a busca
@@ -1211,7 +1356,7 @@ function aoMudarLogin(user) {
   document.querySelectorAll('dialog[open]').forEach(d => d.close()); // nada fica aberto de outra sessão
   Object.assign(state, {
     user, marceneiros: [], lancamentos: [], pedidos: [], saldoOculto: false, filtro: filtroInicial(), busca: '',
-    ferramentas: [], equipe: [], movimentos: [], ferrAba: 'mov', ferrBusca: '', ferrFiltro: 'Todos', ferrForm: formMovVazio(),
+    ferramentas: [], equipe: [], movimentos: [], ferrAba: 'mov', ferrBusca: '', ferrFiltro: 'Todos', ferrPessoa: '', ferrForm: formMovVazio(),
   });
   state.carregados.clear();
 
@@ -1747,9 +1892,12 @@ async function baixarBackup() {
     Ação: m.acao === 'retirada' ? 'Retirada' : 'Devolução',
     Ferramenta: m.ferramenta,
     Obra: m.obs || '',
+    Situação: m.excluido ? `Excluída em ${dataHora(m.excluidoEm)}` : m.alteracoes?.length ? 'Corrigida' : 'Normal',
+    Alterações: (m.alteracoes ?? [])
+      .map(a => `${formatMomento({ toDate: () => new Date(a.em) })}: antes ${a.antes.pessoa}${a.antes.obs ? ` · ${a.antes.obs}` : ''}`).join(' | '),
   }));
   if (ferramentas.length) XLSX.utils.book_append_sheet(arquivo, aba(ferramentas, [10, 34, 12, 12, 18, 16, 26], []), 'Ferramentas');
-  if (movimentos.length) XLSX.utils.book_append_sheet(arquivo, aba(movimentos, [16, 18, 11, 40, 26], []), 'Retiradas de ferramentas');
+  if (movimentos.length) XLSX.utils.book_append_sheet(arquivo, aba(movimentos, [16, 18, 11, 40, 26, 24, 50], []), 'Retiradas de ferramentas');
   XLSX.writeFile(arquivo, `Caixa Nô Art - backup ${today()}.xlsx`);
   toast('Planilha baixada. Guarde em um lugar seguro (Google Drive, por exemplo).');
 }
@@ -1870,6 +2018,7 @@ const actions = {
   'abrir-ferramentas': () => {
     state.ferrAba = 'mov';
     state.ferrBusca = '';
+    state.ferrPessoa = '';
     state.ferrForm = formMovVazio();
     go('ferramentas');
   },
@@ -1880,6 +2029,50 @@ const actions = {
   'ferr-filtro': el => {
     state.ferrFiltro = el.dataset.filtro;
     render();
+  },
+  'pdf-ferramentas': () => imprimirFerramentas(),
+  'ver-movimento': el => abrirMovimento(el.dataset.id),
+  'excluir-movimento': async el => {
+    if (!exigeInternet()) return;
+    const m = movimentoDe($('#dlg-movimento form').elements.movId.value);
+    el.closest('dialog').close();
+    const comQuem = comQuemSemMovimento(m);
+    const consequencia = comQuem === null ? '<p>A ferramenta volta a aparecer como <b>disponível</b> na empresa.</p>'
+      : comQuem ? `<p>A ferramenta volta a ficar com <b>${escapeHtml(nomeDaPessoa(comQuem.pessoaId, comQuem.nome))}</b>.</p>` : '';
+    const confirmado = await confirmar({
+      titulo: 'Excluir movimentação',
+      corpo: `<p>Excluir a ${m.acao === 'retirada' ? 'retirada' : 'devolução'} de <b>${escapeHtml(m.ferramenta)}</b>
+        por <b>${escapeHtml(nomeDaPessoa(m.pessoaId, m.pessoa))}</b> (${formatDataHora(m.criadoEm)})?</p>
+        ${consequencia}<p class="hint">Ela sai do histórico, mas continua guardada na planilha de backup.</p>`,
+      botao: 'Excluir',
+      tom: 'red',
+    });
+    if (!confirmado) return;
+    try {
+      await Store.excluirMovimento(m, comQuem);
+      toast('Movimentação excluída.');
+    } catch (err) {
+      fail(mensagemErro(err));
+    }
+  },
+  // Devolução direto pela linha do painel de itens
+  'devolver-ferramenta': async el => {
+    if (!exigeInternet()) return;
+    const f = state.ferramentas.find(x => x.id === el.dataset.id);
+    if (!f?.comQuem) return;
+    const confirmado = await confirmar({
+      titulo: 'Devolver ferramenta',
+      corpo: `<p><b>${escapeHtml(nomeDaPessoa(f.comQuem.pessoaId, f.comQuem.nome))}</b> devolveu <b>${escapeHtml(rotuloFerramenta(f))}</b>?</p>`,
+      botao: 'Confirmar devolução',
+      tom: 'green',
+    });
+    if (!confirmado) return;
+    try {
+      await Store.devolverFerramenta(f);
+      toast(`Devolução registrada: ${f.nome}.`);
+    } catch (err) {
+      fail(mensagemErro(err));
+    }
   },
   'nova-ferramenta': () => abrirFerramenta(),
   'editar-ferramenta': el => abrirFerramenta(el.dataset.id),
@@ -2201,6 +2394,21 @@ const forms = {
     avisarMarceneiro(contaAtual(), 'Compra parcelada', `${desc} · ${parcelas}x de ${formatMoney(total / parcelas)}`);
   },
 
+  // Correção de uma movimentação: troca a pessoa e/ou a observação
+  async editarMovimento(f) {
+    const m = movimentoDe(f.movId.value);
+    const pessoa = pessoaDe(f.pessoa.value);
+    if (!m || !pessoa) return fail('Escolha o marceneiro.');
+    const obs = m.acao === 'retirada' ? f.obs.value.trim() : (m.obs || '');
+    if (pessoa.id === m.pessoaId && obs === (m.obs || '')) return; // nada mudou: só fecha
+    // Se é a retirada de agora, a ferramenta passa a constar com a pessoa certa
+    const ferramenta = state.ferramentas.find(x => x.id === m.ferramentaId);
+    const atual = m.acao === 'retirada' && ferramenta?.comQuem && ultimoMovimento(m.ferramentaId)?.id === m.id;
+    const comQuem = atual ? { ...ferramenta.comQuem, pessoaId: pessoa.id, nome: pessoa.nome, obs } : undefined;
+    await Store.editarMovimento(m, { pessoa, obs }, comQuem);
+    toast('Movimentação corrigida.');
+  },
+
   // Retirada ou devolução, pelo formulário da aba Movimentação
   async movFerramenta() {
     const { ferramenta: id, pessoa: pessoaId, acao, obs } = state.ferrForm;
@@ -2336,6 +2544,10 @@ document.addEventListener('change', e => {
     if (campo === 'ferramenta') escolherFerramentaMov(e.target.value);
     else state.ferrForm[campo] = e.target.value;
     if (campo !== 'pessoa') render();
+  }
+  if (e.target.matches('[data-ferr-pessoa]')) {
+    state.ferrPessoa = e.target.value;
+    $('#ferr-historico').innerHTML = historicoFerramentasHtml();
   }
 });
 
