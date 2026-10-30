@@ -11,6 +11,11 @@
      pedidos/{id}      → { marcId, uid, valor, motivo, status, criadoEm, respondidoEm, valorAprovado?, resposta? }
      dispositivos/{código do aparelho} → { uid, papel, atualizadoEm }  (quem recebe notificações)
    O campo "uid" liga cada registro ao login do marceneiro (usado nas regras de segurança).
+
+   Controle de ferramentas (só o administrador vê e mexe):
+     ferramentas/{id}  → { codigo, nome, tipo, ativo, comQuem: null | { pessoaId, nome, desde, obs }, criadoEm }
+     equipe/{id}       → { nome, ativo, criadoEm }  (quem pega ferramenta; não precisa ter conta no Caixa)
+     movimentos/{id}   → { ferramentaId, ferramenta, pessoaId, pessoa, acao: 'retirada' | 'devolucao', obs, criadoEm }
    ========================================================= */
 
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
@@ -259,6 +264,63 @@ export const aprovarPedido = (pedido, marceneiro, data, { valor, resposta = '' }
     })));
 
 export const recusarPedido = (pedido, resposta = '') => responder(pedido, 'recusado', { resposta });
+
+// ---------- Ferramentas (só admin) ----------
+// Quem está com cada ferramenta fica na própria ferramenta (comQuem);
+// cada retirada e devolução também vira um movimento, para o histórico.
+
+export const watchFerramentas = (user, cb, onError) => escutar('ferramentas', user, cb, onError);
+export const watchEquipe = (user, cb, onError) => escutar('equipe', user, cb, onError);
+export const watchMovimentos = (user, cb, onError) => escutar('movimentos', user, cb, onError);
+
+export const addFerramenta = ({ codigo, nome, tipo }) =>
+  addDoc(collection(db, 'ferramentas'), { codigo, nome, tipo, ativo: true, comQuem: null, criadoEm: serverTimestamp() });
+
+export const updateFerramenta = (id, campos) => updateDoc(doc(db, 'ferramentas', id), campos);
+
+export const addPessoa = nome => addDoc(collection(db, 'equipe'), { nome, ativo: true, criadoEm: serverTimestamp() });
+
+export const updatePessoa = (id, campos) => updateDoc(doc(db, 'equipe', id), campos);
+
+// Primeira vez: cadastra a lista que veio da planilha
+export async function cadastrarListaInicial(ferramentas, nomes) {
+  const batch = writeBatch(db);
+  ferramentas.forEach(f => batch.set(doc(collection(db, 'ferramentas')),
+    { ...f, ativo: true, comQuem: null, criadoEm: serverTimestamp() }));
+  nomes.forEach(nome => batch.set(doc(collection(db, 'equipe')), { nome, ativo: true, criadoEm: serverTimestamp() }));
+  await batch.commit();
+}
+
+const rotuloFerramenta = f => `${f.codigo} · ${f.nome}`;
+
+// Confere no servidor que ninguém pegou antes (dois aparelhos ao mesmo tempo)
+export async function retirarFerramenta(ferramenta, pessoa, obs = '') {
+  const ref = doc(db, 'ferramentas', ferramenta.id);
+  await runTransaction(db, async tx => {
+    const atual = (await tx.get(ref)).data();
+    if (atual?.comQuem) throw new Error(`Essa ferramenta já está com ${atual.comQuem.nome}.`);
+    tx.update(ref, { comQuem: { pessoaId: pessoa.id, nome: pessoa.nome, desde: serverTimestamp(), obs } });
+    tx.set(doc(collection(db, 'movimentos')), {
+      ferramentaId: ferramenta.id, ferramenta: rotuloFerramenta(ferramenta),
+      pessoaId: pessoa.id, pessoa: pessoa.nome,
+      acao: 'retirada', obs, criadoEm: serverTimestamp(),
+    });
+  });
+}
+
+export async function devolverFerramenta(ferramenta) {
+  const ref = doc(db, 'ferramentas', ferramenta.id);
+  await runTransaction(db, async tx => {
+    const atual = (await tx.get(ref)).data();
+    if (!atual?.comQuem) throw new Error('Essa ferramenta já foi devolvida.');
+    tx.update(ref, { comQuem: null });
+    tx.set(doc(collection(db, 'movimentos')), {
+      ferramentaId: ferramenta.id, ferramenta: rotuloFerramenta(ferramenta),
+      pessoaId: atual.comQuem.pessoaId, pessoa: atual.comQuem.nome,
+      acao: 'devolucao', obs: '', criadoEm: serverTimestamp(),
+    });
+  });
+}
 
 // ---------- Avisos (e-mail e notificação no celular) ----------
 // Quem envia é o script do Google, que confere quem está pedindo o envio:

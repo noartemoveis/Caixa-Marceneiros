@@ -328,6 +328,30 @@ button.painel-linha:hover { background: var(--bg); }
 .painel-info small { display: block; color: var(--muted); font-size: 12px; }
 .painel-valor { font-weight: 700; font-size: 14px; white-space: nowrap; text-align: right; }
 .painel-valor small { display: block; color: var(--muted); font-size: 11px; font-weight: 500; }
+.painel-atalho + .painel-atalho { margin-top: -14px; }
+
+/* Ferramentas */
+.ferr-retirar { margin: 14px 0 16px; padding: 14px; }
+.ferr-abas { margin-bottom: 16px; }
+.segmented-4 { grid-template-columns: repeat(4, 1fr); }
+.segmented-4 button { padding: 9px 2px; font-size: 13px; white-space: nowrap; }
+.ferr-topo { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.ferr-grupo { margin: 0 2px 8px; font-size: 13px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }
+.ferr-grupo span { font-weight: 500; }
+.ferr-editar { text-align: left; }
+.ferr-editar small { margin-top: 4px; }
+.ferr-busca { margin-bottom: 12px; }
+.painel-linha > .btn { flex-shrink: 0; }
+.painel-linha > svg { width: 16px; height: 16px; color: var(--muted); flex-shrink: 0; }
+.painel-linha.inativo { opacity: .55; }
+.tag-cinza { background: var(--bg); color: var(--muted); }
+.ferr-inicio {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  padding: 28px 20px; text-align: center;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow);
+}
+.ferr-inicio .qa-icon { width: 52px; height: 52px; border-radius: 16px; }
+.ferr-inicio strong { font-size: 17px; }
 
 /* Cartão "Receber avisos no celular" */
 .aviso-push {
@@ -465,13 +489,14 @@ dialog[open] .sheet { animation: sheetUp .25s ease-out; }
 /* ---------- Campos ---------- */
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field > span { color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; }
-.field input {
+.field input, .field select {
   width: 100%;
   padding: 12px 14px;
   background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
   font-size: 16px; /* 16px evita o zoom automático no iPhone */
+  font-family: inherit; color: var(--text);
 }
-.field input:focus { outline: none; border-color: var(--accent); background: var(--surface); }
+.field input:focus, .field select:focus { outline: none; border-color: var(--accent); background: var(--surface); }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
 .password-field { position: relative; }

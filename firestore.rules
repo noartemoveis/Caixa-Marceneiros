@@ -6,6 +6,7 @@ rules_version = '2';
 //
 // Resumo: o administrador faz tudo. O marceneiro só LÊ os próprios dados
 // e só pode CRIAR pedidos de retirada para ele mesmo (sem editar nem apagar).
+// O controle de ferramentas é só do administrador.
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -54,6 +55,20 @@ service cloud.firestore {
       allow read: if isAdmin() || isDono();
       allow create: if isAdmin() || pedidoProprioValido();
       allow update, delete: if isAdmin();
+    }
+
+    // Controle de ferramentas: só o administrador vê e mexe (os marceneiros nem enxergam)
+    match /ferramentas/{id} {
+      allow read, write: if isAdmin();
+    }
+
+    match /equipe/{id} {
+      allow read, write: if isAdmin();
+    }
+
+    // Histórico de retiradas e devoluções: só se acrescenta, nunca se apaga
+    match /movimentos/{id} {
+      allow read, create: if isAdmin();
     }
 
     // Aparelhos que recebem notificação: cada pessoa só cadastra o próprio aparelho,

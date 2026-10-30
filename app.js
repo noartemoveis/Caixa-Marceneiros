@@ -165,6 +165,7 @@ const ICONS = {
   download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>',
   chart: '<path d="M3 3v18h18"/><path d="M7 16v-5M12 16V8M17 16v-9"/>',
   bell: '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0"/>',
+  tool: '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
 };
 
 const icon = name =>
@@ -173,7 +174,7 @@ const icon = name =>
 // ================= ESTADO =================
 
 const state = {
-  screen: 'carregando', // carregando | config | login | admin | conta | pedidos
+  screen: 'carregando', // carregando | config | login | admin | conta | pedidos | painel | ferramentas
   user: null,           // { role: 'admin' | 'marceneiro', uid, email }
   marceneiros: [],
   lancamentos: [],
@@ -189,12 +190,20 @@ const state = {
   pedidosVolta: 'admin',
   painel: esteMes(),       // período do painel geral do administrador
   busca: '',               // busca no extrato da conta aberta
+  // Controle de ferramentas (só admin)
+  ferramentas: [],
+  equipe: [],
+  movimentos: [],
+  ferrAba: 'uso',          // uso | itens | historico | equipe
+  ferrBusca: '',           // busca no histórico de ferramentas
 };
 
 const COLECOES = ['marceneiros', 'lancamentos', 'pedidos'];
+const COLECOES_FERRAMENTAS = ['ferramentas', 'equipe', 'movimentos'];
 
 const isAdmin = () => state.user?.role === 'admin';
-const carregado = () => state.carregados.size === COLECOES.length;
+const carregado = () => COLECOES.every(c => state.carregados.has(c));
+const ferramentasCarregadas = () => COLECOES_FERRAMENTAS.every(c => state.carregados.has(c));
 const contaAtual = () => state.marceneiros.find(m => m.id === state.contaId);
 const marceneiroDe = marcId => state.marceneiros.find(m => m.id === marcId);
 // Agendados cancelados não entram em nada (continuam só no banco e no backup)
@@ -489,6 +498,7 @@ function viewAdmin() {
       </div>
       <div class="topbar-actions">
         ${botaoAvisos()}
+        <button class="icon-btn" data-action="abrir-ferramentas" title="Ferramentas">${icon('tool')}</button>
         <button class="icon-btn com-badge" data-action="ver-pedidos" title="Pedidos de retirada">
           ${icon('inbox')}${pendentes.length ? `<span class="badge">${pendentes.length}</span>` : ''}
         </button>
@@ -510,6 +520,12 @@ function viewAdmin() {
       ${icon('chevronRight')}
     </button>
 
+    <button class="painel-atalho" data-action="abrir-ferramentas">
+      <span class="qa-icon tone-amber">${icon('tool')}</span>
+      <span><strong>Ferramentas</strong><small>${resumoFerramentas()}</small></span>
+      ${icon('chevronRight')}
+    </button>
+
     ${blocoPedidos}
 
     <div class="section-head">
@@ -521,7 +537,7 @@ function viewAdmin() {
     <section class="backup">
       <div>
         <strong>Backup</strong>
-        <small>Planilha Excel com todos os lançamentos, pedidos e saldos.</small>
+        <small>Planilha Excel com todos os lançamentos, pedidos, saldos e ferramentas.</small>
       </div>
       <button class="btn btn-ghost btn-sm" data-action="baixar-backup">${icon('download')} Baixar planilha</button>
     </section>`;
@@ -755,6 +771,264 @@ function viewPedidos() {
     </div>`;
 }
 
+// ================= FERRAMENTAS (só admin) =================
+// Controle de quem está com cada máquina. Os marceneiros não veem nada disso.
+
+const TIPOS_FERRAMENTA = ['Máquina', 'Ferramenta', 'Broca/Fresa', 'Outro'];
+
+// Lista da planilha, para cadastrar tudo de uma vez na primeira vez
+const LISTA_INICIAL = {
+  ferramentas: [
+    ['MAQ-01', 'Máquina', 'Lixadeira Raiman (1)'], ['MAQ-02', 'Máquina', 'Lixadeira Raiman (2)'],
+    ['MAQ-03', 'Máquina', 'Lixadeira Raiman (3)'], ['MAQ-04', 'Máquina', 'Lixadeira Raiman (4)'],
+    ['MAQ-05', 'Máquina', 'Lixadeira angular DeWalt (1)'], ['MAQ-06', 'Máquina', 'Lixadeira angular DeWalt (2)'],
+    ['MAQ-07', 'Máquina', 'Soprador térmico'], ['MAQ-08', 'Máquina', 'Esmerilhadeira Bosch'],
+    ['MAQ-09', 'Máquina', 'Serra circular Bosch'], ['MAQ-10', 'Máquina', 'Router Makita'],
+    ['MAQ-11', 'Máquina', 'Serra circular Makita'], ['MAQ-12', 'Máquina', 'Nível a laser'],
+    ['FER-01', 'Ferramenta', 'Pinador MTK'], ['FER-02', 'Ferramenta', 'Grampeador MTK'],
+    ['FER-03', 'Ferramenta', 'Tripé (1)'], ['FER-04', 'Ferramenta', 'Tripé (2)'],
+    ['BRO-01', 'Broca/Fresa', 'Broca fresadora 30mm/8mm'], ['BRO-02', 'Broca/Fresa', 'Fresa 1/4'],
+    ['BRO-03', 'Broca/Fresa', 'Fresa c/ haste 65x23/75/12 LEITZ'], ['BRO-04', 'Broca/Fresa', 'Fresa de topo 23mm'],
+    ['BRO-05', 'Broca/Fresa', 'Fresa de topo 15x12'], ['BRO-06', 'Broca/Fresa', 'Fresa 150x12 LEITZ'],
+  ].map(([codigo, tipo, nome]) => ({ codigo, tipo, nome })),
+  nomes: ['Zé', 'Itu', 'Djalma', 'Mi', 'Gilmar', 'Galeguinho', 'Cesar', 'Igor', 'Vitor', 'Maksuel', 'Rondennes', 'Daniel', 'Fabiano', 'Fabianinho'],
+};
+
+const porCodigo = (a, b) => a.codigo.localeCompare(b.codigo, 'pt-BR', { numeric: true });
+const porNome = (a, b) => a.nome.localeCompare(b.nome, 'pt-BR');
+const ferramentasAtivas = () => state.ferramentas.filter(f => f.ativo !== false).sort(porCodigo);
+const ferramentasEmUso = () => ferramentasAtivas().filter(f => f.comQuem);
+const pessoaDe = id => state.equipe.find(p => p.id === id);
+// Nome atual da pessoa (se foi renomeada depois da retirada, mostra o nome novo)
+const nomeDaPessoa = (id, guardado) => pessoaDe(id)?.nome ?? guardado;
+const rotuloFerramenta = f => `${f.codigo} · ${f.nome}`;
+
+// "há 3 dias", "há 2 h", "agora"
+function haQuantoTempo(timestamp) {
+  const minutos = Math.floor((Date.now() - momento(timestamp)) / 60000);
+  if (minutos < 1) return 'agora';
+  if (minutos < 60) return `há ${minutos} min`;
+  const horas = Math.floor(minutos / 60);
+  if (horas < 24) return `há ${horas} h`;
+  const dias = Math.floor(horas / 24);
+  return `há ${dias} dia${dias > 1 ? 's' : ''}`;
+}
+
+// Texto do atalho na tela inicial
+function resumoFerramentas() {
+  if (!ferramentasCarregadas()) return 'Quem está com cada máquina';
+  const ativas = ferramentasAtivas();
+  if (!ativas.length) return 'Quem está com cada máquina';
+  const emUso = ativas.filter(f => f.comQuem).length;
+  return emUso ? `${emUso} em uso · ${ativas.length - emUso} na empresa` : `Todas na empresa (${ativas.length})`;
+}
+
+function linhaEmUso(f) {
+  const { pessoaId, nome, desde, obs } = f.comQuem;
+  const pessoa = nomeDaPessoa(pessoaId, nome);
+  return `
+    <div class="painel-linha">
+      <span class="avatar sm">${escapeHtml(initials(pessoa))}</span>
+      <span class="painel-info">
+        <strong>${escapeHtml(rotuloFerramenta(f))}</strong>
+        <small><b>${escapeHtml(pessoa)}</b> · ${haQuantoTempo(desde)}${obs ? ` · ${escapeHtml(obs)}` : ''}</small>
+      </span>
+      <button class="btn btn-ghost btn-sm" data-action="devolver-ferramenta" data-id="${f.id}">Devolver</button>
+    </div>`;
+}
+
+function abaEmUso() {
+  const emUso = ferramentasEmUso().sort((a, b) => momento(a.comQuem.desde) - momento(b.comQuem.desde));
+  return emUso.length
+    ? `<div class="painel-lista">${emUso.map(linhaEmUso).join('')}</div>`
+    : '<p class="empty">Nenhuma ferramenta fora. Tudo guardado na empresa.</p>';
+}
+
+function abaItens() {
+  const linha = f => {
+    const situacao = f.ativo === false
+      ? '<span class="tag tag-cinza">Desativada</span>'
+      : f.comQuem
+        ? `<span class="tag">Com ${escapeHtml(nomeDaPessoa(f.comQuem.pessoaId, f.comQuem.nome))}</span>`
+        : '<span class="tag tag-green">Na empresa</span>';
+    const botao = f.ativo === false ? ''
+      : f.comQuem
+        ? `<button class="btn btn-ghost btn-sm" data-action="devolver-ferramenta" data-id="${f.id}">Devolver</button>`
+        : `<button class="btn btn-ghost btn-sm" data-action="retirar-ferramenta" data-id="${f.id}">Retirar</button>`;
+    return `
+      <div class="painel-linha${f.ativo === false ? ' inativo' : ''}">
+        <button class="painel-info ferr-editar" data-action="editar-ferramenta" data-id="${f.id}" title="Editar">
+          <strong>${escapeHtml(rotuloFerramenta(f))}</strong>
+          <small>${situacao}</small>
+        </button>
+        ${botao}
+      </div>`;
+  };
+  const todas = [...state.ferramentas].sort(porCodigo);
+  const grupos = TIPOS_FERRAMENTA.map(tipo => [tipo, todas.filter(f => f.ativo !== false && (f.tipo || 'Outro') === tipo)])
+    .concat([['Desativadas', todas.filter(f => f.ativo === false)]])
+    .filter(([, lista]) => lista.length);
+
+  return `
+    <div class="ferr-topo">
+      <p class="hint">Toque no nome para editar.</p>
+      <button class="btn btn-primary btn-sm" data-action="nova-ferramenta">${icon('plus')} Nova</button>
+    </div>
+    ${grupos.map(([titulo, lista]) => `
+      <h3 class="ferr-grupo">${titulo} <span>${lista.length}</span></h3>
+      <div class="painel-lista">${lista.map(linha).join('')}</div>`).join('')
+      || '<p class="empty">Nenhuma ferramenta cadastrada.</p>'}`;
+}
+
+// Fica separado para a busca atualizar só a lista enquanto a pessoa digita
+function historicoFerramentasHtml() {
+  const termo = semAcento(state.ferrBusca.trim());
+  const lista = [...state.movimentos]
+    .map(m => ({ ...m, pessoa: nomeDaPessoa(m.pessoaId, m.pessoa) }))
+    .filter(m => !termo || semAcento(`${m.pessoa} ${m.ferramenta} ${m.obs}`).includes(termo))
+    .sort(porMaisRecente);
+  if (!lista.length) return `<p class="empty">${termo ? 'Nada encontrado.' : 'Nenhuma retirada registrada ainda.'}</p>`;
+  return `
+    <div class="painel-lista">
+      ${lista.slice(0, 300).map(m => {
+        const retirada = m.acao === 'retirada';
+        return `
+          <div class="painel-linha">
+            <span class="tx-icon ${retirada ? 'out' : 'in'}">${icon(retirada ? 'arrowUp' : 'arrowDown')}</span>
+            <span class="painel-info">
+              <strong class="truncate">${escapeHtml(m.pessoa)} ${retirada ? 'retirou' : 'devolveu'}</strong>
+              <small class="truncate">${escapeHtml(m.ferramenta)}${m.obs ? ` · ${escapeHtml(m.obs)}` : ''}</small>
+            </span>
+            <span class="painel-valor"><small>${formatMomento(m.criadoEm)}</small></span>
+          </div>`;
+      }).join('')}
+    </div>`;
+}
+
+function abaHistorico() {
+  return `
+    <label class="busca ferr-busca">
+      ${icon('search')}
+      <input type="search" data-busca-ferramentas data-manter-foco="busca-ferr" value="${escapeHtml(state.ferrBusca)}"
+        placeholder="Buscar pessoa, máquina ou obra" autocomplete="off" aria-label="Buscar no histórico">
+    </label>
+    <div id="ferr-historico">${historicoFerramentasHtml()}</div>`;
+}
+
+function abaEquipe() {
+  // Quem tem o mesmo nome de uma conta do Caixa aparece marcado
+  const comConta = new Set(state.marceneiros.map(m => chaveCliente(m.nome)));
+  const emUso = ferramentasEmUso();
+  const linha = p => {
+    const qtd = emUso.filter(f => f.comQuem.pessoaId === p.id).length;
+    const detalhe = [
+      p.ativo === false ? 'Desativado' : comConta.has(chaveCliente(p.nome)) ? 'Tem conta no Caixa' : 'Só o nome',
+      qtd ? `está com ${qtd} ferramenta${qtd > 1 ? 's' : ''}` : '',
+    ].filter(Boolean).join(' · ');
+    return `
+      <button class="painel-linha${p.ativo === false ? ' inativo' : ''}" data-action="editar-pessoa" data-id="${p.id}">
+        <span class="avatar sm">${escapeHtml(initials(p.nome))}</span>
+        <span class="painel-info"><strong class="truncate">${escapeHtml(p.nome)}</strong><small>${detalhe}</small></span>
+        ${icon('edit')}
+      </button>`;
+  };
+  const pessoas = [...state.equipe].sort((a, b) => (a.ativo === false) - (b.ativo === false) || porNome(a, b));
+  return `
+    <div class="ferr-topo">
+      <p class="hint">Não precisa ter conta no app.</p>
+      <button class="btn btn-primary btn-sm" data-action="nova-pessoa">${icon('plus')} Adicionar</button>
+    </div>
+    ${pessoas.length ? `<div class="painel-lista">${pessoas.map(linha).join('')}</div>` : '<p class="empty">Ninguém cadastrado.</p>'}`;
+}
+
+function viewFerramentas() {
+  const header = `
+    <header class="topbar">
+      <button class="icon-btn" data-action="back" title="Voltar">${icon('back')}</button>
+      <div class="brand-center"><span>Ferramentas</span></div>
+      <span class="icon-btn-espaco"></span>
+    </header>`;
+
+  if (!ferramentasCarregadas()) return `<div class="conta">${header}<p class="empty">Carregando…</p></div>`;
+
+  // Primeira vez: oferece cadastrar a lista da planilha
+  if (!state.ferramentas.length && !state.equipe.length) {
+    return `
+      <div class="conta">
+        ${header}
+        <section class="ferr-inicio">
+          <span class="qa-icon tone-amber">${icon('tool')}</span>
+          <strong>Vamos começar</strong>
+          <p class="hint">Cadastre de uma vez as ${LISTA_INICIAL.ferramentas.length} máquinas, ferramentas e brocas
+            e os ${LISTA_INICIAL.nomes.length} nomes da equipe que estavam na planilha. Depois dá para editar tudo.</p>
+          <button class="btn btn-primary btn-block" data-action="lista-inicial">Cadastrar lista da planilha</button>
+          <button class="link" data-action="nova-ferramenta">Prefiro cadastrar uma por uma</button>
+        </section>
+      </div>`;
+  }
+
+  const ativas = ferramentasAtivas();
+  const emUso = ativas.filter(f => f.comQuem).length;
+  const ABAS = [['uso', 'Em uso'], ['itens', 'Itens'], ['historico', 'Histórico'], ['equipe', 'Equipe']];
+  const conteudo = { uso: abaEmUso, itens: abaItens, historico: abaHistorico, equipe: abaEquipe }[state.ferrAba]();
+
+  return `
+    <div class="conta">
+      ${header}
+
+      <div class="painel-cards">
+        <div><small>Fora da empresa</small><strong class="${emUso ? 'tone-amber' : ''}">${emUso}</strong></div>
+        <div><small>Na empresa</small><strong class="pos">${ativas.length - emUso}</strong></div>
+      </div>
+
+      <button class="btn btn-primary btn-block ferr-retirar" data-action="retirar-ferramenta">${icon('arrowUp')} Registrar retirada</button>
+
+      <div class="segmented segmented-4 ferr-abas">
+        ${ABAS.map(([id, rotulo]) => `<button type="button" class="${state.ferrAba === id ? 'active' : ''}" data-action="ferr-aba" data-aba="${id}">${rotulo}</button>`).join('')}
+      </div>
+
+      ${conteudo}
+    </div>`;
+}
+
+// Janela de retirada: só aparecem as ferramentas que estão na empresa e as pessoas ativas
+function abrirRetiradaFerramenta(ferramentaId = '') {
+  const disponiveis = ferramentasAtivas().filter(f => !f.comQuem);
+  if (!disponiveis.length) return fail('Todas as ferramentas estão em uso.');
+  const pessoas = state.equipe.filter(p => p.ativo !== false).sort(porNome);
+  if (!pessoas.length) return fail('Cadastre alguém na aba Equipe primeiro.');
+
+  const form = $('#dlg-retirar-ferramenta form');
+  form.elements.ferramenta.innerHTML = '<option value="">Escolha a ferramenta</option>'
+    + disponiveis.map(f => `<option value="${f.id}">${escapeHtml(rotuloFerramenta(f))}</option>`).join('');
+  form.elements.pessoa.innerHTML = '<option value="">Quem está levando?</option>'
+    + pessoas.map(p => `<option value="${p.id}">${escapeHtml(p.nome)}</option>`).join('');
+  openDialog('dlg-retirar-ferramenta', { ferramenta: ferramentaId });
+}
+
+function abrirFerramenta(id = '') {
+  const f = state.ferramentas.find(x => x.id === id);
+  $('#ferramenta-titulo').textContent = f ? 'Editar ferramenta' : 'Nova ferramenta';
+  const ativar = $('#ferramenta-ativar');
+  ativar.hidden = !f;
+  ativar.textContent = f?.ativo === false ? 'Reativar esta ferramenta' : 'Desativar esta ferramenta';
+  openDialog('dlg-ferramenta', {
+    ferramentaId: id,
+    codigo: f?.codigo ?? '',
+    nome: f?.nome ?? '',
+    tipo: f?.tipo ?? TIPOS_FERRAMENTA[0],
+  });
+}
+
+function abrirPessoa(id = '') {
+  const p = pessoaDe(id);
+  $('#pessoa-titulo').textContent = p ? 'Editar nome' : 'Adicionar pessoa';
+  const ativar = $('#pessoa-ativar');
+  ativar.hidden = !p;
+  ativar.textContent = p?.ativo === false ? 'Reativar esta pessoa' : 'Desativar esta pessoa';
+  openDialog('dlg-pessoa', { pessoaId: id, nome: p?.nome ?? '' });
+}
+
 // Parte de baixo do extrato (resumo, agendados e lista). Fica separada para a busca
 // atualizar só ela enquanto a pessoa digita, sem tirar o foco do campo.
 function extratoConteudo(m) {
@@ -881,6 +1155,7 @@ const VIEWS = {
   conta: viewConta,
   pedidos: viewPedidos,
   painel: viewPainel,
+  ferramentas: viewFerramentas,
 };
 
 function render() {
@@ -918,7 +1193,10 @@ function aoMudarLogin(user) {
   pararEscutas.forEach(parar => parar());
   pararEscutas = [];
   document.querySelectorAll('dialog[open]').forEach(d => d.close()); // nada fica aberto de outra sessão
-  Object.assign(state, { user, marceneiros: [], lancamentos: [], pedidos: [], saldoOculto: false, filtro: filtroInicial(), busca: '' });
+  Object.assign(state, {
+    user, marceneiros: [], lancamentos: [], pedidos: [], saldoOculto: false, filtro: filtroInicial(), busca: '',
+    ferramentas: [], equipe: [], movimentos: [], ferrAba: 'uso', ferrBusca: '',
+  });
   state.carregados.clear();
 
   if (!user) {
@@ -936,6 +1214,14 @@ function aoMudarLogin(user) {
     Store.watchLancamentos(user, lista => chegou('lancamentos', lista), erro),
     Store.watchPedidos(user, lista => chegou('pedidos', lista), erro),
   ];
+  // Ferramentas: só o administrador carrega (o marceneiro nem tem permissão)
+  if (user.role === 'admin') {
+    pararEscutas.push(
+      Store.watchFerramentas(user, lista => chegou('ferramentas', lista), erro),
+      Store.watchEquipe(user, lista => chegou('equipe', lista), erro),
+      Store.watchMovimentos(user, lista => chegou('movimentos', lista), erro),
+    );
+  }
   // Quem já ativou os avisos tem o aparelho atualizado a cada entrada
   if (globalThis.Notification?.permission === 'granted') Store.registrarAparelho(user).catch(console.warn);
   go(user.role === 'admin' ? 'admin' : 'conta');
@@ -1428,6 +1714,26 @@ async function baixarBackup() {
   XLSX.utils.book_append_sheet(arquivo, aba(lancamentos, [22, 12, 9, 34, 20, 13, 13, 26, 16, 50], [5, 6]), 'Lançamentos');
   XLSX.utils.book_append_sheet(arquivo, aba(pedidos, [22, 16, 13, 30, 12, 14, 16, 34], [2, 5]), 'Pedidos');
   XLSX.utils.book_append_sheet(arquivo, aba(marceneiros, [22, 30, 14, 14, 14], [2, 3, 4]), 'Marceneiros');
+
+  // Controle de ferramentas (só entra se já tiver algo cadastrado)
+  const ferramentas = [...state.ferramentas].sort(porCodigo).map(f => ({
+    Código: f.codigo,
+    Ferramenta: f.nome,
+    Tipo: f.tipo || '',
+    Situação: f.ativo === false ? 'Desativada' : f.comQuem ? 'Em uso' : 'Na empresa',
+    'Com quem': f.comQuem ? nomeDaPessoa(f.comQuem.pessoaId, f.comQuem.nome) : '',
+    Desde: f.comQuem ? dataHora(f.comQuem.desde) : '',
+    Obra: f.comQuem?.obs || '',
+  }));
+  const movimentos = [...state.movimentos].sort(porMaisRecente).map(m => ({
+    Quando: dataHora(m.criadoEm),
+    Pessoa: nomeDaPessoa(m.pessoaId, m.pessoa),
+    Ação: m.acao === 'retirada' ? 'Retirada' : 'Devolução',
+    Ferramenta: m.ferramenta,
+    Obra: m.obs || '',
+  }));
+  if (ferramentas.length) XLSX.utils.book_append_sheet(arquivo, aba(ferramentas, [10, 34, 12, 12, 18, 16, 26], []), 'Ferramentas');
+  if (movimentos.length) XLSX.utils.book_append_sheet(arquivo, aba(movimentos, [16, 18, 11, 40, 26], []), 'Retiradas de ferramentas');
   XLSX.writeFile(arquivo, `Caixa Nô Art - backup ${today()}.xlsx`);
   toast('Planilha baixada. Guarde em um lugar seguro (Google Drive, por exemplo).');
 }
@@ -1544,6 +1850,78 @@ const actions = {
   'abrir-painel': () => {
     state.painel = esteMes();
     go('painel');
+  },
+  'abrir-ferramentas': () => {
+    state.ferrAba = 'uso';
+    state.ferrBusca = '';
+    go('ferramentas');
+  },
+  'ferr-aba': el => {
+    state.ferrAba = el.dataset.aba;
+    render();
+  },
+  'retirar-ferramenta': el => abrirRetiradaFerramenta(el.dataset.id),
+  'devolver-ferramenta': async el => {
+    if (!exigeInternet()) return;
+    const f = state.ferramentas.find(x => x.id === el.dataset.id);
+    const pessoa = nomeDaPessoa(f.comQuem.pessoaId, f.comQuem.nome);
+    const confirmado = await confirmar({
+      titulo: 'Devolver ferramenta',
+      corpo: `<p><b>${escapeHtml(pessoa)}</b> devolveu <b>${escapeHtml(rotuloFerramenta(f))}</b>?</p>`,
+      botao: 'Confirmar devolução',
+      tom: 'green',
+    });
+    if (!confirmado) return;
+    try {
+      await Store.devolverFerramenta(f);
+      toast('Devolução registrada.');
+    } catch (err) {
+      fail(mensagemErro(err));
+    }
+  },
+  'nova-ferramenta': () => abrirFerramenta(),
+  'editar-ferramenta': el => abrirFerramenta(el.dataset.id),
+  'ativar-ferramenta': async el => {
+    if (!exigeInternet()) return;
+    const f = state.ferramentas.find(x => x.id === $('#dlg-ferramenta form').elements.ferramentaId.value);
+    const ativar = f.ativo === false;
+    if (!ativar && f.comQuem) return fail('Essa ferramenta está em uso. Registre a devolução antes de desativar.');
+    el.closest('dialog').close();
+    try {
+      await Store.updateFerramenta(f.id, { ativo: ativar });
+      toast(ativar ? 'Ferramenta reativada.' : 'Ferramenta desativada. O histórico continua guardado.');
+    } catch (err) {
+      fail(mensagemErro(err));
+    }
+  },
+  'nova-pessoa': () => abrirPessoa(),
+  'editar-pessoa': el => abrirPessoa(el.dataset.id),
+  'ativar-pessoa': async el => {
+    if (!exigeInternet()) return;
+    const p = pessoaDe($('#dlg-pessoa form').elements.pessoaId.value);
+    const ativar = p.ativo === false;
+    if (!ativar && ferramentasEmUso().some(f => f.comQuem.pessoaId === p.id)) {
+      return fail(`${p.nome} ainda está com ferramenta. Registre a devolução antes de desativar.`);
+    }
+    el.closest('dialog').close();
+    try {
+      await Store.updatePessoa(p.id, { ativo: ativar });
+      toast(ativar ? 'Pessoa reativada.' : 'Pessoa desativada. O histórico continua guardado.');
+    } catch (err) {
+      fail(mensagemErro(err));
+    }
+  },
+  'lista-inicial': async el => {
+    if (!exigeInternet()) return;
+    el.disabled = true;
+    try {
+      await Store.cadastrarListaInicial(LISTA_INICIAL.ferramentas, LISTA_INICIAL.nomes);
+      toast('Lista cadastrada!');
+    } catch (err) {
+      fail(mensagemErro(err));
+    } finally {
+      el.disabled = false;
+    }
   },
   'imprimir': () => abrirPeriodo('pdf'),
   'periodo-rapido': el => {
@@ -1821,6 +2199,43 @@ const forms = {
     avisarMarceneiro(contaAtual(), 'Compra parcelada', `${desc} · ${parcelas}x de ${formatMoney(total / parcelas)}`);
   },
 
+  async retirarFerramenta(f) {
+    const ferramenta = state.ferramentas.find(x => x.id === f.ferramenta.value);
+    const pessoa = pessoaDe(f.pessoa.value);
+    if (!ferramenta) return fail('Escolha a ferramenta.');
+    if (!pessoa) return fail('Escolha quem está levando.');
+    await Store.retirarFerramenta(ferramenta, pessoa, f.obs.value.trim());
+    toast(`${ferramenta.nome} com ${pessoa.nome}.`);
+  },
+
+  async ferramenta(f) {
+    const id = f.ferramentaId.value;
+    const dados = { codigo: f.codigo.value.trim().toUpperCase(), nome: f.nome.value.trim(), tipo: f.tipo.value };
+    const repetido = state.ferramentas.find(x => x.id !== id && x.codigo.toUpperCase() === dados.codigo);
+    if (repetido) return fail(`O código ${dados.codigo} já é de ${repetido.nome}.`);
+    if (id) {
+      await Store.updateFerramenta(id, dados);
+      toast('Ferramenta atualizada.');
+    } else {
+      await Store.addFerramenta(dados);
+      toast('Ferramenta cadastrada.');
+    }
+  },
+
+  async pessoa(f) {
+    const id = f.pessoaId.value;
+    const nome = f.nome.value.trim();
+    const repetido = state.equipe.find(p => p.id !== id && chaveCliente(p.nome) === chaveCliente(nome));
+    if (repetido) return fail(`${repetido.nome} já está na lista.`);
+    if (id) {
+      await Store.updatePessoa(id, { nome });
+      toast('Nome atualizado.');
+    } else {
+      await Store.addPessoa(nome);
+      toast(`${nome} adicionado.`);
+    }
+  },
+
   async pedido(f) {
     const valor = parseMoney(f.valor.value);
     if (!(valor > 0)) return fail('Informe um valor maior que zero.');
@@ -1890,6 +2305,10 @@ document.addEventListener('input', e => {
   if (e.target.matches('[data-busca-extrato]')) {
     state.busca = e.target.value;
     $('#extrato-conteudo').innerHTML = extratoConteudo(contaAtual());
+  }
+  if (e.target.matches('[data-busca-ferramentas]')) {
+    state.ferrBusca = e.target.value;
+    $('#ferr-historico').innerHTML = historicoFerramentasHtml();
   }
 });
 

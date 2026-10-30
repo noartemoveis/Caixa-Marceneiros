@@ -294,6 +294,92 @@
     </div>
   </dialog>
 
+  <!-- ==================== FERRAMENTAS (admin) ==================== -->
+
+  <!-- Retirada de ferramenta -->
+  <dialog id="dlg-retirar-ferramenta">
+    <form class="sheet" data-form="retirarFerramenta">
+      <div class="sheet-head">
+        <div>
+          <h3>Registrar retirada</h3>
+          <p class="hint">Quem está levando qual ferramenta</p>
+        </div>
+        <button type="button" class="icon-btn sm" data-action="close" aria-label="Fechar">✕</button>
+      </div>
+      <label class="field">
+        <span>Ferramenta</span>
+        <select name="ferramenta" required></select>
+      </label>
+      <label class="field">
+        <span>Com quem</span>
+        <select name="pessoa" required></select>
+      </label>
+      <label class="field">
+        <span>Obra ou observação (opcional)</span>
+        <input name="obs" autocomplete="off" maxlength="80" placeholder="Ex: obra da Glaucia">
+      </label>
+      <div class="sheet-actions">
+        <button type="button" class="btn btn-ghost" data-action="close">Cancelar</button>
+        <button class="btn btn-primary">Registrar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Nova ferramenta / editar ferramenta -->
+  <dialog id="dlg-ferramenta">
+    <form class="sheet" data-form="ferramenta">
+      <input type="hidden" name="ferramentaId">
+      <div class="sheet-head">
+        <h3 id="ferramenta-titulo">Nova ferramenta</h3>
+        <button type="button" class="icon-btn sm" data-action="close" aria-label="Fechar">✕</button>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span>Código</span>
+          <input name="codigo" required autocomplete="off" autocapitalize="characters" maxlength="12" placeholder="MAQ-13">
+        </label>
+        <label class="field">
+          <span>Tipo</span>
+          <select name="tipo">
+            <option>Máquina</option>
+            <option>Ferramenta</option>
+            <option>Broca/Fresa</option>
+            <option>Outro</option>
+          </select>
+        </label>
+      </div>
+      <label class="field">
+        <span>Nome</span>
+        <input name="nome" required autocomplete="off" maxlength="60" placeholder="Ex: Parafusadeira Makita">
+      </label>
+      <div class="sheet-actions">
+        <button type="button" class="btn btn-ghost" data-action="close">Cancelar</button>
+        <button class="btn btn-primary">Salvar</button>
+      </div>
+      <button type="button" class="btn btn-link-danger" id="ferramenta-ativar" data-action="ativar-ferramenta" hidden>Desativar esta ferramenta</button>
+    </form>
+  </dialog>
+
+  <!-- Pessoa da equipe (não precisa ter conta no app) -->
+  <dialog id="dlg-pessoa">
+    <form class="sheet" data-form="pessoa">
+      <input type="hidden" name="pessoaId">
+      <div class="sheet-head">
+        <h3 id="pessoa-titulo">Adicionar pessoa</h3>
+        <button type="button" class="icon-btn sm" data-action="close" aria-label="Fechar">✕</button>
+      </div>
+      <label class="field">
+        <span>Nome</span>
+        <input name="nome" required autocomplete="off" maxlength="40" placeholder="Ex: Galeguinho">
+      </label>
+      <div class="sheet-actions">
+        <button type="button" class="btn btn-ghost" data-action="close">Cancelar</button>
+        <button class="btn btn-primary">Salvar</button>
+      </div>
+      <button type="button" class="btn btn-link-danger" id="pessoa-ativar" data-action="ativar-pessoa" hidden>Desativar esta pessoa</button>
+    </form>
+  </dialog>
+
   <!-- ==================== ESCOLHA DE CLIENTE (todos) ==================== -->
 
   <dialog id="dlg-cliente">
