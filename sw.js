@@ -6,7 +6,7 @@
      porque elas nunca mudam. Assim o app abre mesmo sem sinal.
    Os dados (saldos, extratos) quem guarda é o próprio Firebase, no aparelho. */
 
-const CACHE = 'caixa-marceneiros-v30';
+const CACHE = 'caixa-marceneiros-v31';
 const FIREBASE = 'https://www.gstatic.com/firebasejs/10.12.2';
 const FILES = [
   './',

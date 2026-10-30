@@ -338,6 +338,31 @@
     </form>
   </dialog>
 
+  <!-- Prazo de cada tipo de ferramenta (dias até contar como atrasada) -->
+  <dialog id="dlg-prazos">
+    <form class="sheet" data-form="prazos">
+      <div class="sheet-head">
+        <div>
+          <h3>Prazos das ferramentas</h3>
+          <p class="hint">Quantos dias cada tipo pode ficar fora antes de aparecer em vermelho e entrar no aviso diário.</p>
+        </div>
+        <button type="button" class="icon-btn sm" data-action="close" aria-label="Fechar">✕</button>
+      </div>
+      <div class="field-row">
+        <label class="field"><span>Máquina</span><input name="maquina" type="number" inputmode="numeric" min="1" max="365" required></label>
+        <label class="field"><span>Ferramenta</span><input name="ferramenta" type="number" inputmode="numeric" min="1" max="365" required></label>
+      </div>
+      <div class="field-row">
+        <label class="field"><span>Broca/Fresa</span><input name="broca" type="number" inputmode="numeric" min="1" max="365" required></label>
+        <label class="field"><span>Outro</span><input name="outro" type="number" inputmode="numeric" min="1" max="365" required></label>
+      </div>
+      <div class="sheet-actions">
+        <button type="button" class="btn btn-ghost" data-action="close">Cancelar</button>
+        <button class="btn btn-primary">Salvar</button>
+      </div>
+    </form>
+  </dialog>
+
   <!-- Corrigir ou excluir uma movimentação do histórico -->
   <dialog id="dlg-movimento">
     <form class="sheet" data-form="editarMovimento">

@@ -104,14 +104,14 @@ function aparelhosDe(alvo) {
   return docs.map(d => d.name.split('/').pop());
 }
 
-function enviarNotificacao(alvo, titulo, corpo) {
+function enviarNotificacao(alvo, titulo, corpo, url) {
   if (!alvo) return;
   const erros = [];
   aparelhosDe(alvo).forEach(codigo => {
     const r = googleApi('https://fcm.googleapis.com/v1/projects/' + PROJETO + '/messages:send', {
       message: {
         token: codigo,
-        data: { titulo: String(titulo || ''), corpo: String(corpo || ''), url: SITE_URL },
+        data: { titulo: String(titulo || ''), corpo: String(corpo || ''), url: url || SITE_URL },
         webpush: { headers: { Urgency: 'high', TTL: '86400' } },
       },
     });
@@ -174,6 +174,13 @@ function dinheiro(valor) {
 // Avisa o marceneiro quando um valor agendado chega na data: serviço liberado ou parcela descontada.
 
 function avisarAgendadosDeHoje() {
+  // Junto do aviso diário: ferramentas que passaram do prazo (um erro aqui não impede o resto)
+  try {
+    avisarFerramentasAtrasadas();
+  } catch (err) {
+    console.error('Aviso de ferramentas: ' + err);
+  }
+
   const hoje = hojeISO();
   buscar('lancamentos', 'data', hoje).map(comoObjeto).forEach(l => {
     if (l.cancelado || l.estornado || l.estornoDe) return;
@@ -185,6 +192,46 @@ function avisarAgendadosDeHoje() {
       credito ? 'Valor liberado hoje' : 'Desconto agendado para hoje',
       l.desc + ' · ' + (credito ? '+ ' : '− ') + dinheiro(l.valor));
   });
+}
+
+// ---------- Ferramentas atrasadas (roda junto do aviso diário das 8h) ----------
+// Avisa o administrador quando alguma ferramenta está fora há mais dias que o prazo do tipo dela
+// (prazos escolhidos no app; sem escolha, 7 dias).
+
+const PRAZO_PADRAO = 7;
+const CHAVE_TIPO = { 'Máquina': 'maquina', 'Ferramenta': 'ferramenta', 'Broca/Fresa': 'broca', 'Outro': 'outro' };
+
+function prazosDasFerramentas() {
+  const r = googleApi(FIRESTORE + '/config/ferramentas', null, 'get');
+  if (r.codigo === 404) return {};
+  if (r.codigo !== 200) throw new Error('Firestore ' + r.codigo + ': ' + r.texto);
+  return comoObjeto(JSON.parse(r.texto)).prazos || {};
+}
+
+function avisarFerramentasAtrasadas() {
+  const prazos = prazosDasFerramentas();
+  const nomeDe = {};
+  listar('equipe').forEach(p => { nomeDe[p.id] = p.nome; });
+  const agora = Date.now();
+
+  const atrasadas = listar('ferramentas')
+    .filter(f => f.ativo !== false && f.comQuem && f.comQuem.desde)
+    .map(f => {
+      const dias = Math.floor((agora - f.comQuem.desde.getTime()) / 86400000);
+      const prazo = Number(prazos[CHAVE_TIPO[f.tipo] || 'outro']) || PRAZO_PADRAO;
+      return { f: f, dias: dias, prazo: prazo };
+    })
+    .filter(x => x.dias >= x.prazo)
+    .sort((a, b) => b.dias - a.dias);
+  if (!atrasadas.length) return;
+
+  const linhas = atrasadas.slice(0, 4).map(x =>
+    x.f.codigo + ' com ' + (nomeDe[x.f.comQuem.pessoaId] || x.f.comQuem.nome) + ' (' + x.dias + ' dias)');
+  const resto = atrasadas.length > 4 ? ' e mais ' + (atrasadas.length - 4) : '';
+  enviarNotificacao('admin',
+    atrasadas.length === 1 ? '1 ferramenta fora do prazo' : atrasadas.length + ' ferramentas fora do prazo',
+    linhas.join(' · ') + resto,
+    SITE_URL + '#ferramentas');
 }
 
 // ---------- Backup semanal no Google Drive (toda segunda às 7h) ----------

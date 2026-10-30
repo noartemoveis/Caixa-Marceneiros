@@ -72,6 +72,11 @@ service cloud.firestore {
       allow read, create, update: if isAdmin();
     }
 
+    // Configurações das ferramentas (prazo de cada tipo): só o administrador
+    match /config/{id} {
+      allow read, write: if isAdmin();
+    }
+
     // Aparelhos que recebem notificação: cada pessoa só cadastra o próprio aparelho,
     // e só o administrador pode se cadastrar como "admin"
     match /dispositivos/{codigo} {

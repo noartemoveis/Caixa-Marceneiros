@@ -17,6 +17,7 @@
      equipe/{id}       → { nome, ativo, criadoEm }  (quem pega ferramenta; não precisa ter conta no Caixa)
      movimentos/{id}   → { ferramentaId, ferramenta, pessoaId, pessoa, acao: 'retirada' | 'devolucao', obs, criadoEm,
                            alteracoes?, excluido?, excluidoEm? }
+     config/ferramentas → { prazos: { maquina, ferramenta, broca, outro } }  (dias até a ferramenta contar como atrasada)
    ========================================================= */
 
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
@@ -272,7 +273,29 @@ export const recusarPedido = (pedido, resposta = '') => responder(pedido, 'recus
 
 export const watchFerramentas = (user, cb, onError) => escutar('ferramentas', user, cb, onError);
 export const watchEquipe = (user, cb, onError) => escutar('equipe', user, cb, onError);
-export const watchMovimentos = (user, cb, onError) => escutar('movimentos', user, cb, onError);
+export const watchConfig = (user, cb, onError) => escutar('config', user, cb, onError);
+
+const comoLista = snap => snap.docs.map(d => ({ id: d.id, ...d.data({ serverTimestamps: 'estimate' }) }));
+
+// Histórico ao vivo só a partir de uma data (os meses recentes): o app abre leve mesmo depois de anos.
+// O mais antigo é buscado só quando alguém pede (filtro de data, PDF ou backup).
+export function watchMovimentos(desde, cb, onError) {
+  const q = query(collection(db, 'movimentos'), where('criadoEm', '>=', desde));
+  return onSnapshot(q, snap => cb(comoLista(snap)), onError);
+}
+
+// Movimentações de um período (inicio/fim: Date ou null = sem limite)
+export async function buscarMovimentos(inicio, fim) {
+  const filtros = [inicio && where('criadoEm', '>=', inicio), fim && where('criadoEm', '<', fim)].filter(Boolean);
+  return comoLista(await getDocs(query(collection(db, 'movimentos'), ...filtros)));
+}
+
+// Todas as movimentações de uma ferramenta (para corrigir o histórico sem depender do que está carregado)
+export async function movimentosDaFerramenta(ferramentaId) {
+  return comoLista(await getDocs(query(collection(db, 'movimentos'), where('ferramentaId', '==', ferramentaId))));
+}
+
+export const salvarPrazos = prazos => setDoc(doc(db, 'config', 'ferramentas'), { prazos }, { merge: true });
 
 export const addFerramenta = ({ codigo, nome, tipo }) =>
   addDoc(collection(db, 'ferramentas'), { codigo, nome, tipo, ativo: true, comQuem: null, criadoEm: serverTimestamp() });

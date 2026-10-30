@@ -201,10 +201,16 @@ const state = {
   ferrFiltro: 'Todos',     // categoria no painel de itens
   ferrPessoa: '',          // marceneiro escolhido no histórico ('' = todos)
   ferrForm: { ferramenta: '', pessoa: '', acao: 'retirada', obs: '' }, // formulário de movimentação
+  ferrPeriodo: { inicio: null, fim: null }, // período do histórico (ao abrir: os meses que vêm ao vivo)
+  movimentosAntigos: [],   // movimentações de antes do período ao vivo, buscadas quando pedem
+  historicoBuscado: new Set(), // períodos antigos já buscados
+  historicoTodo: false,    // já buscou o histórico inteiro?
+  carregandoHistorico: false,
+  config: {},              // configurações do admin (ex.: config.ferramentas.prazos)
 };
 
 const COLECOES = ['marceneiros', 'lancamentos', 'pedidos'];
-const COLECOES_FERRAMENTAS = ['ferramentas', 'equipe', 'movimentos'];
+const COLECOES_FERRAMENTAS = ['ferramentas', 'equipe', 'movimentos', 'config'];
 
 const isAdmin = () => state.user?.role === 'admin';
 const carregado = () => COLECOES.every(c => state.carregados.has(c));
@@ -334,6 +340,7 @@ function rotuloPeriodo({ inicio, fim }) {
   if (!inicio) return 'Todo o histórico';
   if (inicio.endsWith('-01') && fim === endOfMonth(inicio)) return nomeDoMes(inicio.slice(0, 7));
   const curta = iso => (iso.slice(0, 4) === today().slice(0, 4) ? formatDate(iso).slice(0, 5) : formatDate(iso));
+  if (!fim) return `Desde ${curta(inicio)}`; // sem fim: até hoje (histórico de ferramentas)
   return inicio === fim ? curta(inicio) : `${curta(inicio)} – ${curta(fim)}`;
 }
 
@@ -867,7 +874,7 @@ function formMovimentacao() {
       </label>
       <label class="field">
         <span>Marceneiro</span>
-        <select name="pessoa" required data-mov="pessoa" ${devolucao && selecionada?.comQuem ? 'disabled' : ''}>
+        <select name="pessoa" required data-mov="pessoa" ${devolucao ? 'disabled' : ''}>
           ${opcao('', 'Quem está levando?', !pessoa)}
           ${pessoas.map(p => opcao(p.id, p.nome, p.id === pessoa)).join('')}
         </select>
@@ -888,22 +895,73 @@ function formMovimentacao() {
     </form>`;
 }
 
-// Movimentações que contam (as excluídas ficam só no banco e no backup)
-const movimentosAtivos = () => state.movimentos.filter(m => !m.excluido);
-const movimentoDe = id => state.movimentos.find(m => m.id === id);
+// ---------- Histórico: ao vivo só os últimos meses; o mais antigo vem quando pedem ----------
 
-// Ferramenta fora há muitos dias aparece em vermelho e acende o número na chave inglesa
-const DIAS_ALERTA = 7;
+const MESES_AO_VIVO = 3;
+// Primeiro dia do mês, MESES_AO_VIVO meses atrás (ex.: em 30/10 → 01/08)
+function inicioAoVivo() {
+  const hoje = new Date();
+  return toIso(new Date(hoje.getFullYear(), hoje.getMonth() - (MESES_AO_VIVO - 1), 1));
+}
+const periodoPadraoHistorico = () => ({ inicio: inicioAoVivo(), fim: null });
+
+// Movimentações carregadas: as ao vivo e as antigas buscadas (sem repetir; a ao vivo é a mais nova)
+function todosMovimentos() {
+  const porId = new Map(state.movimentosAntigos.map(m => [m.id, m]));
+  state.movimentos.forEach(m => porId.set(m.id, m));
+  return [...porId.values()];
+}
+// As excluídas ficam só no banco e no backup
+const movimentosAtivos = () => todosMovimentos().filter(m => !m.excluido);
+const movimentoDe = id => todosMovimentos().find(m => m.id === id);
+const diaDoMovimento = m => toIso(momento(m.criadoEm));
+
+// Se o período pedido começa antes do que está ao vivo, busca o que falta no banco (uma vez só)
+async function garantirHistorico() {
+  const { inicio, fim } = state.ferrPeriodo;
+  if (inicio && inicio >= inicioAoVivo()) return;
+  if (state.historicoTodo) return; // já buscou tudo
+  const ate = fim && fim < inicioAoVivo() ? addDays(fim, 1) : inicioAoVivo();
+  const chave = `${inicio || ''}|${ate}`;
+  if (state.historicoBuscado.has(chave)) return;
+  state.carregandoHistorico = true;
+  render();
+  try {
+    const lista = await Store.buscarMovimentos(inicio ? new Date(inicio + 'T00:00:00') : null, new Date(ate + 'T00:00:00'));
+    const antigos = new Map(state.movimentosAntigos.map(m => [m.id, m]));
+    lista.forEach(m => antigos.set(m.id, m));
+    state.movimentosAntigos = [...antigos.values()];
+    state.historicoBuscado.add(chave);
+    if (!inicio) state.historicoTodo = true;
+  } catch (err) {
+    console.error(err);
+    fail(mensagemErro(err));
+  } finally {
+    state.carregandoHistorico = false;
+    render();
+  }
+}
+
+// ---------- Prazo de cada tipo de ferramenta ----------
+// Passou do prazo: aparece em vermelho, acende o número na chave inglesa e entra no aviso diário
+
+const PRAZO_PADRAO = 7;
+// Chave de cada tipo no banco (sem "/" no nome do campo)
+const CHAVE_TIPO = { 'Máquina': 'maquina', 'Ferramenta': 'ferramenta', 'Broca/Fresa': 'broca', 'Outro': 'outro' };
+const prazoDoTipo = tipo => Number(state.config.ferramentas?.prazos?.[CHAVE_TIPO[tipo] ?? 'outro']) || PRAZO_PADRAO;
+const prazoDe = f => prazoDoTipo(TIPOS_FERRAMENTA.includes(f.tipo) ? f.tipo : 'Outro');
 const diasFora = f => Math.floor((Date.now() - momento(f.comQuem.desde)) / 86400000);
-const atrasada = f => Boolean(f.comQuem) && diasFora(f) >= DIAS_ALERTA;
+const atrasada = f => Boolean(f.comQuem) && diasFora(f) >= prazoDe(f);
 
-// Histórico com o filtro da tela (marceneiro e busca), do mais recente para o mais antigo
+// Histórico com o filtro da tela (período, marceneiro e busca), do mais recente para o mais antigo
 function historicoFiltrado() {
   const termo = semAcento(state.ferrBusca.trim());
+  const { inicio, fim } = state.ferrPeriodo;
   return movimentosAtivos()
+    .filter(m => (!inicio || diaDoMovimento(m) >= inicio) && (!fim || diaDoMovimento(m) <= fim))
     .filter(m => !state.ferrPessoa || m.pessoaId === state.ferrPessoa)
     .map(m => ({ ...m, pessoa: nomeDaPessoa(m.pessoaId, m.pessoa) }))
-    .filter(m => !termo || semAcento(`${m.pessoa} ${m.ferramenta} ${m.obs}`).includes(termo))
+    .filter(m => !termo || semAcento(`${m.pessoa} ${m.ferramenta} ${m.obs || ''}`).includes(termo))
     .sort(porMaisRecente);
 }
 
@@ -926,9 +984,9 @@ function botaoFerramentas() {
 
 // Fica separado para a busca atualizar só a tabela enquanto a pessoa digita
 function historicoFerramentasHtml() {
+  if (state.carregandoHistorico) return '<p class="empty">Buscando o histórico desse período…</p>';
   const lista = historicoFiltrado();
-  const filtrando = state.ferrBusca.trim() || state.ferrPessoa;
-  if (!lista.length) return `<p class="empty">${filtrando ? 'Nada encontrado.' : 'Nenhuma movimentação registrada ainda.'}</p>`;
+  if (!lista.length) return '<p class="empty">Nenhuma movimentação neste período.</p>';
   const LIMITE = 300; // o histórico completo fica na planilha de backup e no PDF
   const aviso = lista.length > LIMITE
     ? `<p class="busca-info">Mostrando as ${LIMITE} mais recentes de ${lista.length}. O PDF e a planilha de backup trazem todas.</p>` : '';
@@ -962,6 +1020,7 @@ function abaMovimentacao() {
           <button class="btn btn-ghost btn-sm" data-action="pdf-ferramentas">${icon('print')} PDF</button>
         </div>
         <div class="ferr-filtros">
+          <button class="period-btn" data-action="abrir-periodo-ferr">${icon('calendar')} ${rotuloPeriodo(state.ferrPeriodo)}</button>
           <select class="ferr-select" data-ferr-pessoa aria-label="Filtrar por marceneiro">
             <option value="">Todos os marceneiros</option>
             ${pessoas.map(p => `<option value="${p.id}"${p.id === state.ferrPessoa ? ' selected' : ''}>${escapeHtml(p.nome)}</option>`).join('')}
@@ -993,7 +1052,7 @@ function abaPainelItens() {
   const status = f => {
     if (f.ativo === false) return '<span class="tag tag-cinza">Desativada</span>';
     if (!f.comQuem) return '<span class="tag tag-green">Disponível</span>';
-    return atrasada(f) ? `<span class="tag tag-red">Fora há ${diasFora(f)} dias</span>` : '<span class="tag">Em uso</span>';
+    return atrasada(f) ? `<span class="tag tag-red" title="Prazo: ${prazoDe(f)} dias">Fora há ${diasFora(f)} dias</span>` : '<span class="tag">Em uso</span>';
   };
 
   const linhas = lista.map(f => `
@@ -1045,7 +1104,10 @@ function abaPainelItens() {
       </div>
       ${verPessoas
         ? `<button class="btn btn-primary btn-sm" data-action="nova-pessoa">${icon('plus')} Adicionar pessoa</button>`
-        : `<button class="btn btn-primary btn-sm" data-action="nova-ferramenta">${icon('plus')} Nova ferramenta</button>`}
+        : `<div class="ferr-botoes">
+            <button class="btn btn-ghost btn-sm" data-action="prazos" title="Dias até a ferramenta contar como atrasada">${icon('calendar')} Prazos</button>
+            <button class="btn btn-primary btn-sm" data-action="nova-ferramenta">${icon('plus')} Nova ferramenta</button>
+          </div>`}
     </div>
 
     ${verPessoas ? `
@@ -1121,7 +1183,15 @@ function abrirPessoa(id = '') {
 
 // ---------- Correção do histórico ----------
 
-const ultimoMovimento = ferramentaId => movimentosAtivos().filter(m => m.ferramentaId === ferramentaId).sort(porMaisRecente)[0];
+// Movimentações da ferramenta direto do banco, da mais recente para a mais antiga
+// (a retirada que importa pode ser de antes dos meses carregados na tela)
+const historicoDaFerramenta = async ferramentaId =>
+  (await Store.movimentosDaFerramenta(ferramentaId)).filter(m => !m.excluido).sort(porMaisRecente);
+
+// Uma movimentação antiga (buscada pelo filtro de data) não atualiza sozinha: aplica a correção na cópia da tela
+function atualizarMovimentoAntigo(id, campos) {
+  state.movimentosAntigos = state.movimentosAntigos.map(m => (m.id === id ? { ...m, ...campos } : m));
+}
 
 // Janela para trocar a pessoa ou a observação de uma movimentação (ou excluir)
 function abrirMovimento(id) {
@@ -1140,15 +1210,14 @@ function abrirMovimento(id) {
 }
 
 // O que muda na ferramenta ao excluir esta movimentação (undefined = nada)
-function comQuemSemMovimento(m) {
-  if (ultimoMovimento(m.ferramentaId)?.id !== m.id) return undefined; // só a última muda a situação de hoje
+// daFerramenta: o historicoDaFerramenta() dela
+function comQuemSemMovimento(m, daFerramenta) {
+  if (daFerramenta[0]?.id !== m.id) return undefined; // só a última muda a situação de hoje
   const f = state.ferramentas.find(x => x.id === m.ferramentaId);
   if (m.acao === 'retirada') return f?.comQuem ? null : undefined; // a retirada some: volta para a empresa
   if (f?.comQuem) return undefined;
   // A devolução some: a ferramenta volta a ficar com quem fez a retirada anterior
-  const anterior = movimentosAtivos()
-    .filter(x => x.ferramentaId === m.ferramentaId && x.id !== m.id)
-    .sort(porMaisRecente)[0];
+  const anterior = daFerramenta.find(x => x.id !== m.id);
   return anterior?.acao === 'retirada'
     ? { pessoaId: anterior.pessoaId, nome: anterior.pessoa, desde: anterior.criadoEm, obs: anterior.obs || '' }
     : undefined;
@@ -1195,6 +1264,7 @@ async function imprimirFerramentas() {
       <div><span>Marceneiro</span><strong>${p ? escapeHtml(p.nome) : 'Todos'}</strong></div>
       <div><span>Emitido em</span><strong>${emitidoEm}</strong></div>
       <div><span>${rotuloFora}</span><strong>${fora.length} ferramenta(s)</strong></div>
+      <div><span>Período</span><strong>${escapeHtml(rotuloPeriodo(state.ferrPeriodo))}</strong></div>
       <div><span>Movimentações${busca ? ` (busca: ${escapeHtml(busca)})` : ''}</span><strong>${lista.length}</strong></div>
     </section>
 
@@ -1432,7 +1502,7 @@ function abrirEndereco(historico) {
 window.addEventListener('popstate', () => {
   passosNoApp = Math.max(0, passosNoApp - 1);
   if (!state.user) return; // na tela de login, só guarda o endereço
-  document.querySelectorAll('dialog[open]').forEach(d => d.close());
+  fecharJanelas();
   abrirEndereco(false);
 });
 
@@ -1449,10 +1519,12 @@ let pararEscutas = [];
 function aoMudarLogin(user) {
   pararEscutas.forEach(parar => parar());
   pararEscutas = [];
-  document.querySelectorAll('dialog[open]').forEach(d => d.close()); // nada fica aberto de outra sessão
+  fecharJanelas(); // nada fica aberto de outra sessão
   Object.assign(state, {
     user, marceneiros: [], lancamentos: [], pedidos: [], saldoOculto: false, filtro: filtroInicial(), busca: '',
     ferramentas: [], equipe: [], movimentos: [], ferrAba: 'mov', ferrBusca: '', ferrFiltro: 'Todos', ferrPessoa: '', ferrForm: formMovVazio(),
+    ferrPeriodo: periodoPadraoHistorico(), movimentosAntigos: [], historicoBuscado: new Set(), historicoTodo: false,
+    carregandoHistorico: false, config: {},
   });
   state.carregados.clear();
 
@@ -1476,7 +1548,9 @@ function aoMudarLogin(user) {
     pararEscutas.push(
       Store.watchFerramentas(user, lista => chegou('ferramentas', lista), erro),
       Store.watchEquipe(user, lista => chegou('equipe', lista), erro),
-      Store.watchMovimentos(user, lista => chegou('movimentos', lista), erro),
+      // Ao vivo só os últimos meses; o resto o filtro de data busca quando precisar
+      Store.watchMovimentos(new Date(inicioAoVivo() + 'T00:00:00'), lista => chegou('movimentos', lista), erro),
+      Store.watchConfig(user, lista => chegou('config', Object.fromEntries(lista.map(({ id, ...dados }) => [id, dados]))), erro),
     );
   }
   // Quem já ativou os avisos tem o aparelho atualizado a cada entrada
@@ -1525,6 +1599,12 @@ function responderConfirmacao(sim) {
   $('#dlg-confirmar').close();
   respostaConfirmacao?.(sim);
   respostaConfirmacao = null;
+}
+
+// Fecha tudo o que estiver aberto; a confirmação fechada assim vale como "Cancelar"
+// (senão a ação que esperava a resposta ficaria parada para sempre)
+function fecharJanelas() {
+  document.querySelectorAll('dialog[open]').forEach(d => (d.id === 'dlg-confirmar' ? responderConfirmacao(false) : d.close()));
 }
 
 const detalhesHtml = linhas => `
@@ -1670,12 +1750,15 @@ function sugerirClientes(campo) {
 
 let cal = { modo: 'filtro', mes: '', inicio: null, fim: null, tipo: 'todos', cliente: '' };
 
-// modo: 'filtro' (extrato na tela), 'pdf' (extrato em PDF) ou 'painel' (painel geral)
+// modo: 'filtro' (extrato na tela), 'pdf' (extrato em PDF), 'painel' (painel geral) ou 'ferramentas' (histórico)
 function abrirPeriodo(modo) {
-  const { inicio, fim, tipo, cliente } = modo === 'painel' ? { ...state.painel, tipo: 'todos', cliente: '' } : state.filtro;
+  const sem = { tipo: 'todos', cliente: '' };
+  const { inicio, fim, tipo, cliente } = modo === 'painel' ? { ...state.painel, ...sem }
+    : modo === 'ferramentas' ? { ...state.ferrPeriodo, ...sem } : state.filtro;
   cal = { modo, inicio, fim, tipo, cliente, mes: (inicio ?? today()).slice(0, 7) };
   const nomeCliente = cliente && nomeDoCliente(lancamentosDe(state.contaId), cliente);
   $('#periodo-titulo').textContent = modo === 'painel' ? 'Período do painel'
+    : modo === 'ferramentas' ? 'Período do histórico'
     : modo === 'filtro' ? 'Período do extrato'
     : cliente ? `Serviços de ${nomeCliente} em PDF` : 'Extrato em PDF';
   $('#periodo-ok').textContent = modo === 'pdf' ? 'Gerar PDF' : 'Aplicar';
@@ -1754,6 +1837,11 @@ function confirmarPeriodo() {
   } else if (cal.modo === 'painel') {
     state.painel = { inicio, fim };
     render();
+  } else if (cal.modo === 'ferramentas') {
+    // Sem o último dia, vale "a partir de" (como o calendário mostra)
+    state.ferrPeriodo = { inicio, fim: cal.fim };
+    render();
+    garantirHistorico();
   } else {
     state.filtro = { ...state.filtro, inicio, fim };
     render();
@@ -1982,7 +2070,7 @@ async function baixarBackup() {
     Desde: f.comQuem ? dataHora(f.comQuem.desde) : '',
     Obra: f.comQuem?.obs || '',
   }));
-  const movimentos = [...state.movimentos].sort(porMaisRecente).map(m => ({
+  const movimentos = (await Store.buscarMovimentos(null, null)).sort(porMaisRecente).map(m => ({
     Quando: dataHora(m.criadoEm),
     Pessoa: nomeDaPessoa(m.pessoaId, m.pessoa),
     Ação: m.acao === 'retirada' ? 'Retirada' : 'Devolução',
@@ -2115,8 +2203,16 @@ const actions = {
     state.ferrAba = 'mov';
     state.ferrBusca = '';
     state.ferrPessoa = '';
+    state.ferrPeriodo = periodoPadraoHistorico();
     state.ferrForm = formMovVazio();
     go('ferramentas');
+  },
+  'abrir-periodo-ferr': () => abrirPeriodo('ferramentas'),
+  'prazos': () => {
+    const form = $('#dlg-prazos form');
+    const valores = Object.fromEntries(TIPOS_FERRAMENTA.map(t => [CHAVE_TIPO[t], prazoDoTipo(t)]));
+    openDialog('dlg-prazos', valores);
+    form.elements[CHAVE_TIPO[TIPOS_FERRAMENTA[0]]].focus();
   },
   'ferr-aba': el => {
     state.ferrAba = el.dataset.aba;
@@ -2138,7 +2234,14 @@ const actions = {
     if (!exigeInternet()) return;
     const m = movimentoDe($('#dlg-movimento form').elements.movId.value);
     el.closest('dialog').close();
-    const comQuem = comQuemSemMovimento(m);
+    if (!m) return;
+    let daFerramenta;
+    try {
+      daFerramenta = await historicoDaFerramenta(m.ferramentaId);
+    } catch (err) {
+      return fail(mensagemErro(err));
+    }
+    const comQuem = comQuemSemMovimento(m, daFerramenta);
     const consequencia = comQuem === null ? '<p>A ferramenta volta a aparecer como <b>disponível</b> na empresa.</p>'
       : comQuem ? `<p>A ferramenta volta a ficar com <b>${escapeHtml(nomeDaPessoa(comQuem.pessoaId, comQuem.nome))}</b>.</p>` : '';
     const confirmado = await confirmar({
@@ -2152,6 +2255,8 @@ const actions = {
     if (!confirmado) return;
     try {
       await Store.excluirMovimento(m, comQuem);
+      atualizarMovimentoAntigo(m.id, { excluido: true });
+      render();
       toast('Movimentação excluída.');
     } catch (err) {
       fail(mensagemErro(err));
@@ -2505,10 +2610,27 @@ const forms = {
     if (pessoa.id === m.pessoaId && obs === (m.obs || '')) return; // nada mudou: só fecha
     // Se é a retirada de agora, a ferramenta passa a constar com a pessoa certa
     const ferramenta = state.ferramentas.find(x => x.id === m.ferramentaId);
-    const atual = m.acao === 'retirada' && ferramenta?.comQuem && ultimoMovimento(m.ferramentaId)?.id === m.id;
-    const comQuem = atual ? { ...ferramenta.comQuem, pessoaId: pessoa.id, nome: pessoa.nome, obs } : undefined;
+    const ultimo = ferramenta?.comQuem && m.acao === 'retirada' ? (await historicoDaFerramenta(m.ferramentaId))[0] : null;
+    const comQuem = ultimo?.id === m.id ? { ...ferramenta.comQuem, pessoaId: pessoa.id, nome: pessoa.nome, obs } : undefined;
     await Store.editarMovimento(m, { pessoa, obs }, comQuem);
+    atualizarMovimentoAntigo(m.id, {
+      pessoaId: pessoa.id, pessoa: pessoa.nome, obs,
+      alteracoes: [...(m.alteracoes ?? []), { em: new Date().toISOString(), antes: { pessoa: m.pessoa, obs: m.obs || '' } }],
+    });
+    render();
     toast('Movimentação corrigida.');
+  },
+
+  // Prazo (em dias) de cada tipo de ferramenta antes de contar como atrasada
+  async prazos(f) {
+    const prazos = {};
+    for (const tipo of TIPOS_FERRAMENTA) {
+      const dias = parseInt(f[CHAVE_TIPO[tipo]].value, 10);
+      if (!(dias >= 1 && dias <= 365)) return fail(`Prazo de ${tipo}: use de 1 a 365 dias.`);
+      prazos[CHAVE_TIPO[tipo]] = dias;
+    }
+    await Store.salvarPrazos(prazos);
+    toast('Prazos salvos.');
   },
 
   // Retirada ou devolução, pelo formulário da aba Movimentação
@@ -2645,6 +2767,11 @@ document.addEventListener('change', e => {
     const campo = e.target.dataset.mov;
     if (campo === 'ferramenta') escolherFerramentaMov(e.target.value);
     else state.ferrForm[campo] = e.target.value;
+    // Devolução é sempre de quem está com a ferramenta: o nome acompanha
+    if (campo === 'acao' && e.target.value === 'devolucao') {
+      const f = state.ferramentas.find(x => x.id === state.ferrForm.ferramenta);
+      state.ferrForm.pessoa = f?.comQuem?.pessoaId ?? '';
+    }
     if (campo !== 'pessoa') render();
   }
   if (e.target.matches('[data-ferr-pessoa]')) {

@@ -387,6 +387,8 @@ button.painel-linha:hover { background: var(--bg); }
 .ferr-topo { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
 .ferr-titulo { font-size: 13px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; display: flex; align-items: center; gap: 8px; }
 .ferr-filtros { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.ferr-filtros .period-btn { flex-shrink: 0; }
+.ferr-botoes { display: flex; gap: 8px; flex-wrap: wrap; }
 .ferr-select {
   flex: 1; min-width: 160px; max-width: 240px; padding: 9px 12px;
   background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
