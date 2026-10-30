@@ -811,9 +811,12 @@ const formMovVazio = () => ({ ferramenta: '', pessoa: '', acao: 'retirada', obs:
 // Ao escolher a ferramenta, a ação acompanha: se está fora, é devolução de quem está com ela
 function escolherFerramentaMov(id) {
   const f = state.ferramentas.find(x => x.id === id);
+  const eraDevolucao = state.ferrForm.acao === 'devolucao';
   state.ferrForm.ferramenta = id;
   state.ferrForm.acao = f?.comQuem ? 'devolucao' : 'retirada';
   if (f?.comQuem) state.ferrForm.pessoa = f.comQuem.pessoaId;
+  // Vindo de uma devolução, não deixa o nome de quem devolveu escolhido para a nova retirada
+  else if (eraDevolucao) state.ferrForm.pessoa = '';
 }
 
 function formMovimentacao() {
@@ -852,7 +855,7 @@ function formMovimentacao() {
       </label>
       <label class="field">
         <span>Observações</span>
-        <input name="obs" data-mov="obs" autocomplete="off" maxlength="80" placeholder="Ex: obra, motivo..." value="${escapeHtml(obs)}"
+        <input name="obs" data-mov="obs" data-manter-foco="obs-ferr" autocomplete="off" maxlength="80" placeholder="Ex: obra, motivo..." value="${escapeHtml(obs)}"
           ${devolucao ? 'disabled' : ''}>
       </label>
       <button class="btn btn-primary">${icon('plus')} Registrar</button>
