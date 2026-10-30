@@ -9,6 +9,7 @@ import * as Store from './store.js';
 const LEMBRAR_KEY = 'caixa_ultimo_email';
 const AGENDADOS_KEY = 'caixa_agendados';
 const AVISOS_DISPENSADO_KEY = 'caixa_avisos_dispensado';
+const TEMA_KEY = 'caixa_tema'; // 'light', 'dark' ou vazio (segue o aparelho); lido também no index.html
 const SITE_URL = location.origin + location.pathname;
 
 // Filtro do extrato e do PDF por tipo de lançamento
@@ -164,6 +165,7 @@ const ICONS = {
   check: '<path d="M20 6 9 17l-5-5"/>',
   download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>',
   chart: '<path d="M3 3v18h18"/><path d="M7 16v-5M12 16V8M17 16v-9"/>',
+  moon: '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>',
   bell: '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0"/>',
   tool: '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
 };
@@ -385,6 +387,25 @@ function botaoAvisos() {
   return `<button class="icon-btn" data-action="ativar-push" title="Ativar avisos neste aparelho">${icon('bell')}</button>`;
 }
 
+// Tema do app neste aparelho: Automático (como o celular/computador), Claro ou Escuro
+const TEMAS = [['', 'Automático'], ['light', 'Claro'], ['dark', 'Escuro']];
+
+function aplicarTema(tema) {
+  if (tema) document.documentElement.dataset.theme = tema;
+  else delete document.documentElement.dataset.theme;
+}
+
+function seletorTema() {
+  const atual = document.documentElement.dataset.theme || '';
+  return `
+    <section class="tema">
+      <span>${icon('moon')} Aparência</span>
+      <div class="segmented segmented-3">
+        ${TEMAS.map(([id, rotulo]) => `<button type="button" class="${atual === id ? 'active' : ''}" data-action="tema" data-tema="${id}">${rotulo}</button>`).join('')}
+      </div>
+    </section>`;
+}
+
 function eyeButton() {
   const label = state.saldoOculto ? 'Mostrar saldo' : 'Esconder saldo';
   return `<button data-action="toggle-saldo" aria-label="${label}" title="${label}">${icon(state.saldoOculto ? 'eyeOff' : 'eye')}</button>`;
@@ -537,7 +558,9 @@ function viewAdmin() {
         <small>Planilha Excel com todos os lançamentos, pedidos, saldos e ferramentas.</small>
       </div>
       <button class="btn btn-ghost btn-sm" data-action="baixar-backup">${icon('download')} Baixar planilha</button>
-    </section>`;
+    </section>
+
+    ${seletorTema()}`;
 }
 
 function viewContaIndisponivel() {
@@ -652,6 +675,8 @@ function viewConta() {
         <div class="filtros-linha">${busca}${filtroCliente}</div>
         <div id="extrato-conteudo">${extratoConteudo(m)}</div>
       </section>
+
+      ${isAdmin() ? '' : seletorTema()}
     </div>`;
 }
 
@@ -2102,6 +2127,12 @@ const actions = {
     render();
   },
   'pdf-ferramentas': () => imprimirFerramentas(),
+  'tema': el => {
+    const tema = el.dataset.tema;
+    salvarPreferencia(TEMA_KEY, tema);
+    aplicarTema(tema);
+    render();
+  },
   'ver-movimento': el => abrirMovimento(el.dataset.id),
   'excluir-movimento': async el => {
     if (!exigeInternet()) return;

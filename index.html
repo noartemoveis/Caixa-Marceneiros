@@ -17,6 +17,13 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
+  <!-- Aplica o tema escolhido (claro/escuro) antes de desenhar, para a tela não piscar -->
+  <script>
+    try {
+      const tema = localStorage.getItem('caixa_tema');
+      if (tema === 'light' || tema === 'dark') document.documentElement.dataset.theme = tema;
+    } catch { /* modo anônimo: segue o aparelho */ }
+  </script>
 </head>
 <body>
 

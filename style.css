@@ -1,9 +1,12 @@
 /* =========================================================
    Caixa dos Marceneiros — estilos
    Cores da Nô Art. Celular primeiro, depois computador.
+   Modo escuro: segue o aparelho, ou o que a pessoa escolheu no app
+   (data-theme="light" ou "dark" no <html>). A impressão é sempre clara.
    ========================================================= */
 
 :root {
+  color-scheme: light;
   --bg: #F7F5F0;
   --surface: #FFFFFF;
   --border: #E2DDD6;
@@ -18,8 +21,46 @@
   --accent: #A0522D;
   --accent-dark: #7A3D20;
   --accent-soft: #F3E6DD;
+  --accent-text: #7A3D20;   /* cor da marca usada em texto (abas, opções marcadas) */
+  --accent-border: #E8CDBB;
+  --amber-border: #F0DCA8;
+  /* Fundo dos botões coloridos (texto branco em cima) */
+  --green-btn: #2D6A4F;  --green-btn-hover: #1F4A37;
+  --red-btn: #9B2335;    --red-btn-hover: #721927;
+  --amber-btn: #7A5200;  --amber-btn-hover: #5C3E00;
+  /* Avisos que aparecem embaixo (toast) */
+  --inverso: #1A1814;
+  --inverso-texto: #FFFFFF;
   --radius: 14px;
   --shadow: 0 1px 3px rgba(26, 24, 20, .06), 0 4px 16px rgba(26, 24, 20, .04);
+}
+
+/* Paleta escura: a mesma lista nos dois blocos (automático pelo aparelho e escolhido no app) */
+@media screen and (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #161311; --surface: #211D1A; --border: #39312B; --text: #EDE6DE; --muted: #A2978C;
+    --green: #6FC79A; --green-soft: #1C3328; --red: #F28B98; --red-soft: #3F1F26;
+    --amber: #E9B65A; --amber-soft: #382B16; --accent: #B8653A; --accent-dark: #7A3D20; --accent-soft: #33241B;
+    --accent-text: #EBA57B; --accent-border: #5A3B29; --amber-border: #5A4520;
+    --green-btn: #2F7A57; --green-btn-hover: #276848; --red-btn: #B33A4D; --red-btn-hover: #962F40;
+    --amber-btn: #94690F; --amber-btn-hover: #7A570C;
+    --inverso: #EDE6DE; --inverso-texto: #161311;
+    --shadow: 0 1px 3px rgba(0, 0, 0, .35), 0 4px 16px rgba(0, 0, 0, .25);
+  }
+}
+@media screen {
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #161311; --surface: #211D1A; --border: #39312B; --text: #EDE6DE; --muted: #A2978C;
+    --green: #6FC79A; --green-soft: #1C3328; --red: #F28B98; --red-soft: #3F1F26;
+    --amber: #E9B65A; --amber-soft: #382B16; --accent: #B8653A; --accent-dark: #7A3D20; --accent-soft: #33241B;
+    --accent-text: #EBA57B; --accent-border: #5A3B29; --amber-border: #5A4520;
+    --green-btn: #2F7A57; --green-btn-hover: #276848; --red-btn: #B33A4D; --red-btn-hover: #962F40;
+    --amber-btn: #94690F; --amber-btn-hover: #7A570C;
+    --inverso: #EDE6DE; --inverso-texto: #161311;
+    --shadow: 0 1px 3px rgba(0, 0, 0, .35), 0 4px 16px rgba(0, 0, 0, .25);
+  }
 }
 
 /* ---------- Base ---------- */
@@ -81,11 +122,11 @@ svg { width: 20px; height: 20px; flex-shrink: 0; }
   width: 40px; height: 40px; flex-shrink: 0;
   display: grid; place-items: center;
   border-radius: 50%;
-  background: var(--accent-soft); color: var(--accent-dark);
+  background: var(--accent-soft); color: var(--accent-text);
   font-size: 14px; font-weight: 700;
 }
 .avatar.sm { width: 32px; height: 32px; font-size: 12px; }
-.avatar-dark { background: var(--text); color: #fff; }
+.avatar-dark { background: var(--inverso); color: var(--inverso-texto); }
 
 /* ---------- Cartão de saldo ---------- */
 .balance-card {
@@ -160,7 +201,7 @@ svg { width: 20px; height: 20px; flex-shrink: 0; }
 /* Botões "Este mês" / "Tudo" lado a lado */
 .segmented { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; background: var(--bg); border-radius: 12px; }
 .segmented button { padding: 9px; border-radius: 9px; font-size: 14px; font-weight: 600; color: var(--muted); text-align: center; }
-.segmented button.active { background: var(--surface); color: var(--accent-dark); box-shadow: var(--shadow); }
+.segmented button.active { background: var(--surface); color: var(--accent-text); box-shadow: var(--shadow); }
 .segmented-3 { grid-template-columns: repeat(3, 1fr); }
 .filtro-tipo { margin-bottom: 12px; }
 
@@ -185,7 +226,7 @@ svg { width: 20px; height: 20px; flex-shrink: 0; }
   display: inline-flex; align-items: center; gap: 6px;
   padding: 7px 12px;
   background: var(--accent-soft); border-radius: 999px;
-  color: var(--accent-dark); font-size: 13px; font-weight: 600;
+  color: var(--accent-text); font-size: 13px; font-weight: 600;
 }
 .sugestao svg { width: 14px; height: 14px; }
 
@@ -256,7 +297,7 @@ svg { width: 20px; height: 20px; flex-shrink: 0; }
   font-size: 14px; font-weight: 600; color: var(--muted); text-align: center;
   transition: border-color .15s, background .15s, color .15s;
 }
-.opcao input:checked + span { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-dark); }
+.opcao input:checked + span { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-text); }
 .opcao input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .period-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; }
@@ -400,11 +441,18 @@ button.painel-linha:hover { background: var(--bg); }
 .ferr-inicio .qa-icon { width: 52px; height: 52px; border-radius: 16px; }
 .ferr-inicio strong { font-size: 17px; }
 
+/* Escolha do tema (claro/escuro), no fim da tela inicial */
+.tema { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 16px; padding: 12px 16px; border: 1px dashed var(--border); border-radius: var(--radius); }
+.tema > span { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; font-weight: 600; }
+.tema > span svg { width: 16px; height: 16px; }
+.tema .segmented { flex: 1; max-width: 320px; min-width: 240px; }
+.tema .segmented button { padding: 7px; font-size: 13px; }
+
 /* Cartão "Receber avisos no celular" */
 .aviso-push {
   display: flex; flex-wrap: wrap; align-items: center; gap: 12px;
   margin: -6px 0 20px; padding: 14px;
-  background: var(--accent-soft); border: 1px solid #E8CDBB; border-radius: var(--radius);
+  background: var(--accent-soft); border: 1px solid var(--accent-border); border-radius: var(--radius);
 }
 .aviso-push .qa-icon { width: 44px; height: 44px; border-radius: 14px; flex-shrink: 0; }
 .aviso-push-texto { flex: 1; min-width: 180px; }
@@ -418,7 +466,7 @@ button.painel-linha:hover { background: var(--bg); }
   padding: calc(8px + env(safe-area-inset-top)) 16px 8px;
   background: var(--amber-soft); color: var(--amber);
   font-size: 13px; text-align: center;
-  border-bottom: 1px solid #F0DCA8;
+  border-bottom: 1px solid var(--amber-border);
 }
 
 /* Quadro de backup na tela do administrador */
@@ -473,7 +521,7 @@ button.painel-linha:hover { background: var(--bg); }
   display: inline-grid; place-items: center;
   min-width: 22px; height: 22px; padding: 0 6px;
   border-radius: 999px;
-  background: var(--red); color: #fff;
+  background: var(--red-btn); color: #fff;
   font-size: 12px; vertical-align: middle;
 }
 
@@ -493,16 +541,16 @@ button.painel-linha:hover { background: var(--bg); }
 .btn-block { width: 100%; }
 .btn-primary { background: var(--accent); color: #fff; }
 .btn-primary:hover { background: var(--accent-dark); }
-.btn-green { background: var(--green); color: #fff; }
-.btn-green:hover { background: #1F4A37; }
-.btn-red { background: var(--red); color: #fff; }
-.btn-red:hover { background: #721927; }
-.btn-amber { background: var(--amber); color: #fff; }
-.btn-amber:hover { background: #5C3E00; }
+.btn-green { background: var(--green-btn); color: #fff; }
+.btn-green:hover { background: var(--green-btn-hover); }
+.btn-red { background: var(--red-btn); color: #fff; }
+.btn-red:hover { background: var(--red-btn-hover); }
+.btn-amber { background: var(--amber-btn); color: #fff; }
+.btn-amber:hover { background: var(--amber-btn-hover); }
 .btn-ghost { border: 1px solid var(--border); color: var(--muted); }
 .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
 .btn-danger { background: var(--red-soft); color: var(--red); }
-.btn-danger:hover { background: var(--red); color: #fff; }
+.btn-danger:hover { background: var(--red-btn); color: #fff; }
 .btn-link-danger { color: var(--red); font-size: 13px; padding: 4px; }
 .btn:disabled { opacity: .6; cursor: wait; }
 
@@ -592,13 +640,13 @@ dialog[open] .sheet { animation: sheetUp .25s ease-out; }
   max-width: calc(100vw - 32px);
   padding: 12px 20px;
   border-radius: 12px;
-  background: var(--text); color: #fff;
+  background: var(--inverso); color: var(--inverso-texto);
   font-size: 14px; font-weight: 500;
   box-shadow: 0 6px 20px rgba(0, 0, 0, .18);
   animation: slideUp .25s ease-out, fadeOut .3s ease-in 2.7s forwards;
 }
-.toast.success { background: var(--green); }
-.toast.error { background: var(--red); }
+.toast.success { background: var(--green-btn); }
+.toast.error { background: var(--red-btn); }
 
 /* ---------- Animações ---------- */
 @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
