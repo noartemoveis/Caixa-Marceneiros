@@ -128,17 +128,24 @@ function enviarNotificacao(alvo, titulo, corpo) {
 // O Firestore devolve cada campo como { stringValue }, { booleanValue }, { doubleValue }...
 // Aqui vira um objeto comum: { id, nome, valor, criadoEm (data) ... }
 function comoObjeto(documento) {
-  const objeto = { id: documento.name.split('/').pop() };
-  const campos = documento.fields || {};
-  Object.keys(campos).forEach(chave => {
-    const v = campos[chave];
-    if ('stringValue' in v) objeto[chave] = v.stringValue;
-    else if ('booleanValue' in v) objeto[chave] = v.booleanValue;
-    else if ('integerValue' in v) objeto[chave] = Number(v.integerValue);
-    else if ('doubleValue' in v) objeto[chave] = Number(v.doubleValue);
-    else if ('timestampValue' in v) objeto[chave] = new Date(v.timestampValue);
-  });
+  return Object.assign({ id: documento.name.split('/').pop() }, camposDe(documento.fields));
+}
+
+function camposDe(campos) {
+  const objeto = {};
+  Object.keys(campos || {}).forEach(chave => { objeto[chave] = valorDe(campos[chave]); });
   return objeto;
+}
+
+function valorDe(v) {
+  if ('stringValue' in v) return v.stringValue;
+  if ('booleanValue' in v) return v.booleanValue;
+  if ('integerValue' in v) return Number(v.integerValue);
+  if ('doubleValue' in v) return Number(v.doubleValue);
+  if ('timestampValue' in v) return new Date(v.timestampValue);
+  if ('mapValue' in v) return camposDe(v.mapValue.fields); // ex.: "comQuem" da ferramenta
+  if ('arrayValue' in v) return (v.arrayValue.values || []).map(valorDe);
+  return null;
 }
 
 // Todos os documentos de uma coleção (de 300 em 300)
@@ -181,7 +188,7 @@ function avisarAgendadosDeHoje() {
 }
 
 // ---------- Backup semanal no Google Drive (toda segunda às 7h) ----------
-// Cria uma planilha com tudo na pasta "Caixa Nô Art - Backups" do Drive.
+// Cria uma planilha com tudo (inclusive as ferramentas) na pasta "Caixa Nô Art - Backups" do Drive.
 
 const PASTA_BACKUP = 'Caixa Nô Art - Backups';
 
@@ -223,6 +230,28 @@ function fazerBackup() {
     ['Nome', 'E-mail', 'Saldo atual'],
     marceneiros.map(m => [m.nome, m.email, saldoDe(m.id)]),
     [3]);
+
+  // Controle de ferramentas: quem está com cada uma e o histórico de retiradas
+  const pessoaDe = {};
+  listar('equipe').forEach(p => { pessoaDe[p.id] = p.nome; });
+  const pessoa = (id, guardado) => pessoaDe[id] || guardado || '';
+  const ferramentas = listar('ferramentas')
+    .sort((a, b) => String(a.codigo).localeCompare(String(b.codigo), 'pt-BR', { numeric: true }));
+  const movimentos = listar('movimentos').sort((a, b) => (b.criadoEm || 0) - (a.criadoEm || 0));
+
+  escreverAba(planilha.insertSheet('Ferramentas'),
+    ['Código', 'Ferramenta', 'Tipo', 'Situação', 'Com quem', 'Desde', 'Obra'],
+    ferramentas.map(f => [f.codigo, f.nome, f.tipo || '',
+      f.ativo === false ? 'Desativada' : f.comQuem ? 'Em uso' : 'Na empresa',
+      f.comQuem ? pessoa(f.comQuem.pessoaId, f.comQuem.nome) : '',
+      f.comQuem ? quando(f.comQuem.desde) : '', (f.comQuem && f.comQuem.obs) || '']),
+    []);
+
+  escreverAba(planilha.insertSheet('Retiradas de ferramentas'),
+    ['Quando', 'Pessoa', 'Ação', 'Ferramenta', 'Obra'],
+    movimentos.map(m => [quando(m.criadoEm), pessoa(m.pessoaId, m.pessoa),
+      m.acao === 'retirada' ? 'Retirada' : 'Devolução', m.ferramenta, m.obs || '']),
+    []);
 
   DriveApp.getFileById(planilha.getId()).moveTo(pastaDeBackup());
   return planilha.getUrl();

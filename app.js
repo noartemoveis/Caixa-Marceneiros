@@ -865,7 +865,9 @@ function abaItens() {
       </div>`;
   };
   const todas = [...state.ferramentas].sort(porCodigo);
-  const grupos = TIPOS_FERRAMENTA.map(tipo => [tipo, todas.filter(f => f.ativo !== false && (f.tipo || 'Outro') === tipo)])
+  // Tipo desconhecido (ou vazio) entra em "Outro", para nenhuma ferramenta sumir da lista
+  const tipoDe = f => (TIPOS_FERRAMENTA.includes(f.tipo) ? f.tipo : 'Outro');
+  const grupos = TIPOS_FERRAMENTA.map(tipo => [tipo, todas.filter(f => f.ativo !== false && tipoDe(f) === tipo)])
     .concat([['Desativadas', todas.filter(f => f.ativo === false)]])
     .filter(([, lista]) => lista.length);
 
@@ -888,9 +890,12 @@ function historicoFerramentasHtml() {
     .filter(m => !termo || semAcento(`${m.pessoa} ${m.ferramenta} ${m.obs}`).includes(termo))
     .sort(porMaisRecente);
   if (!lista.length) return `<p class="empty">${termo ? 'Nada encontrado.' : 'Nenhuma retirada registrada ainda.'}</p>`;
-  return `
+  const LIMITE = 300; // o histórico completo fica na planilha de backup
+  const aviso = lista.length > LIMITE
+    ? `<p class="busca-info">Mostrando os ${LIMITE} mais recentes de ${lista.length}. Use a busca ou a planilha de backup para ver os outros.</p>` : '';
+  return `${aviso}
     <div class="painel-lista">
-      ${lista.slice(0, 300).map(m => {
+      ${lista.slice(0, LIMITE).map(m => {
         const retirada = m.acao === 'retirada';
         return `
           <div class="painel-linha">

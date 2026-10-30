@@ -6,7 +6,7 @@
      porque elas nunca mudam. Assim o app abre mesmo sem sinal.
    Os dados (saldos, extratos) quem guarda é o próprio Firebase, no aparelho. */
 
-const CACHE = 'caixa-marceneiros-v22';
+const CACHE = 'caixa-marceneiros-v23';
 const FIREBASE = 'https://www.gstatic.com/firebasejs/10.12.2';
 const FILES = [
   './',
@@ -42,7 +42,9 @@ self.addEventListener('activate', event => {
   self.clients.claim();
 });
 
+// Só guarda resposta boa: um erro do servidor não pode substituir a cópia que funciona sem internet
 const guardar = (request, response) => {
+  if (!response.ok) return response;
   const copy = response.clone();
   caches.open(CACHE).then(cache => cache.put(request, copy));
   return response;

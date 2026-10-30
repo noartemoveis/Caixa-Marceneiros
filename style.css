@@ -56,10 +56,13 @@ svg { width: 20px; height: 20px; flex-shrink: 0; }
 
 /* ---------- Topo ---------- */
 .topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
-.topbar-actions { display: flex; gap: 8px; }
+.topbar-actions { display: flex; gap: 8px; flex-shrink: 0; }
 .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.brand strong { display: block; font-size: 16px; }
-.brand small { display: block; color: var(--muted); font-size: 12px; }
+.brand > div { min-width: 0; }
+/* Com vários botões no topo, o nome encurta com "…" em vez de quebrar em duas linhas */
+.brand strong { display: block; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.brand small { display: block; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 400px) { .topbar-actions { gap: 6px; } }
 .brand-center { display: flex; align-items: center; gap: 10px; font-weight: 600; min-width: 0; }
 
 .logo { width: 40px; height: 40px; flex-shrink: 0; border-radius: 12px; object-fit: cover; }
