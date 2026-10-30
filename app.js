@@ -854,7 +854,6 @@ function escolherFerramentaMov(id) {
 
 function formMovimentacao() {
   const { ferramenta, pessoa, acao, obs } = state.ferrForm;
-  const selecionada = state.ferramentas.find(f => f.id === ferramenta);
   const devolucao = acao === 'devolucao';
   const pessoas = state.equipe.filter(p => p.ativo !== false || p.id === pessoa).sort(porNome);
   const opcao = (valor, texto, escolhido) =>
@@ -932,7 +931,8 @@ async function garantirHistorico() {
     lista.forEach(m => antigos.set(m.id, m));
     state.movimentosAntigos = [...antigos.values()];
     state.historicoBuscado.add(chave);
-    if (!inicio) state.historicoTodo = true;
+    // Só conta como "tudo" se buscou do começo até o período ao vivo (com data final, ficou faltando o meio)
+    if (!inicio && ate === inicioAoVivo()) state.historicoTodo = true;
   } catch (err) {
     console.error(err);
     fail(mensagemErro(err));
