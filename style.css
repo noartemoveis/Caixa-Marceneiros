@@ -645,8 +645,8 @@ dialog[open] .sheet { animation: sheetUp .25s ease-out; }
   box-shadow: 0 6px 20px rgba(0, 0, 0, .18);
   animation: slideUp .25s ease-out, fadeOut .3s ease-in 2.7s forwards;
 }
-.toast.success { background: var(--green-btn); }
-.toast.error { background: var(--red-btn); }
+.toast.success { background: var(--green-btn); color: #fff; } /* texto branco também no modo escuro */
+.toast.error { background: var(--red-btn); color: #fff; }
 
 /* ---------- Animações ---------- */
 @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
