@@ -344,7 +344,6 @@ button.painel-linha:hover { background: var(--bg); }
 .ferr-form .btn { align-self: flex-start; }
 .field select:disabled, .field input:disabled { opacity: .6; }
 .ferr-topo { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
-.ferr-topo-pessoas { margin-top: 28px; margin-bottom: 4px; }
 .ferr-titulo { font-size: 13px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; display: flex; align-items: center; gap: 8px; }
 .ferr-filtros { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
 .ferr-select {
@@ -382,6 +381,9 @@ button.painel-linha:hover { background: var(--bg); }
 .chip { padding: 6px 12px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--muted); font-size: 13px; font-weight: 600; }
 .chip:hover { border-color: var(--accent); color: var(--accent); }
 .chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.chips-divisor { width: 1px; align-self: stretch; margin: 4px 4px; background: var(--border); }
+.chip-numero { margin-left: 4px; padding: 0 6px; border-radius: 999px; background: var(--bg); color: var(--muted); font-size: 11px; }
+.chip.active .chip-numero { background: rgba(255, 255, 255, .25); color: #fff; }
 
 .pessoas-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
 .pessoa-card { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); text-align: left; }

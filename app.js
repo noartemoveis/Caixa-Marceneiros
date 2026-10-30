@@ -959,7 +959,9 @@ function abaPainelItens() {
   // Tipo desconhecido (ou vazio) entra em "Outro", para nenhuma ferramenta sumir da lista
   const tipoDe = f => (TIPOS_FERRAMENTA.includes(f.tipo) ? f.tipo : 'Outro');
   const filtros = ['Todos', ...TIPOS_FERRAMENTA.filter(t => ativas.some(f => tipoDe(f) === t)), ...(desativadas.length ? ['Desativadas'] : [])];
-  const filtro = filtros.includes(state.ferrFiltro) ? state.ferrFiltro : 'Todos';
+  // "Marceneiros" fica junto dos filtros: troca a tabela de ferramentas pela lista de pessoas
+  const verPessoas = state.ferrFiltro === 'Marceneiros';
+  const filtro = filtros.includes(state.ferrFiltro) ? state.ferrFiltro : verPessoas ? '' : 'Todos';
   const lista = filtro === 'Desativadas' ? [...desativadas].sort(porCodigo)
     : ativas.filter(f => filtro === 'Todos' || tipoDe(f) === filtro);
 
@@ -1011,22 +1013,25 @@ function abaPainelItens() {
     <div class="ferr-topo">
       <div class="chips">
         ${filtros.map(t => `<button type="button" class="chip${t === filtro ? ' active' : ''}" data-action="ferr-filtro" data-filtro="${t}">${t}</button>`).join('')}
+        <span class="chips-divisor" aria-hidden="true"></span>
+        <button type="button" class="chip${verPessoas ? ' active' : ''}" data-action="ferr-filtro" data-filtro="Marceneiros">
+          Marceneiros <span class="chip-numero">${state.equipe.filter(p => p.ativo !== false).length}</span>
+        </button>
       </div>
-      <button class="btn btn-primary btn-sm" data-action="nova-ferramenta">${icon('plus')} Nova ferramenta</button>
-    </div>
-    <div class="tabela-wrap">
-      <table class="tabela">
-        <thead><tr><th>Código</th><th>Categoria</th><th>Item</th><th>Status</th><th>Com quem</th><th>Desde</th><th></th></tr></thead>
-        <tbody>${linhas || '<tr><td colspan="7" class="empty">Nenhuma ferramenta aqui.</td></tr>'}</tbody>
-      </table>
+      ${verPessoas
+        ? `<button class="btn btn-primary btn-sm" data-action="nova-pessoa">${icon('plus')} Adicionar pessoa</button>`
+        : `<button class="btn btn-primary btn-sm" data-action="nova-ferramenta">${icon('plus')} Nova ferramenta</button>`}
     </div>
 
-    <div class="ferr-topo ferr-topo-pessoas">
-      <h3 class="ferr-titulo">Marceneiros <span class="badge badge-cinza">${state.equipe.filter(p => p.ativo !== false).length}</span></h3>
-      <button class="btn btn-primary btn-sm" data-action="nova-pessoa">${icon('plus')} Adicionar pessoa</button>
-    </div>
-    <p class="hint ferr-dica">Não precisa ter conta no app. Toque no nome para editar.</p>
-    ${pessoas.length ? `<div class="pessoas-grid">${pessoas.map(cartaoPessoa).join('')}</div>` : '<p class="empty">Ninguém cadastrado.</p>'}`;
+    ${verPessoas ? `
+      <p class="hint ferr-dica">Não precisa ter conta no app. Toque no nome para editar.</p>
+      ${pessoas.length ? `<div class="pessoas-grid">${pessoas.map(cartaoPessoa).join('')}</div>` : '<p class="empty">Ninguém cadastrado.</p>'}` : `
+      <div class="tabela-wrap">
+        <table class="tabela">
+          <thead><tr><th>Código</th><th>Categoria</th><th>Item</th><th>Status</th><th>Com quem</th><th>Desde</th><th></th></tr></thead>
+          <tbody>${linhas || '<tr><td colspan="7" class="empty">Nenhuma ferramenta aqui.</td></tr>'}</tbody>
+        </table>
+      </div>`}`;
 }
 
 function viewFerramentas() {
