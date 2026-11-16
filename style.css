@@ -379,7 +379,9 @@ button.painel-linha:hover { background: var(--bg); }
 
 /* Ferramentas: usa a largura toda no computador (formulário de um lado, histórico do outro) */
 .ferr { max-width: 100%; }
-.ferr-abas { max-width: 420px; margin-bottom: 18px; }
+.ferr-abas { max-width: 520px; margin-bottom: 18px; }
+.relatorio-paradas .chip { cursor: default; }
+.ferr > .ferr-titulo { margin: 22px 0 8px; }
 .ferr-split { display: grid; gap: 20px; align-items: start; }
 .ferr-split > * { min-width: 0; } /* a tabela rola dentro dela, sem empurrar a página para o lado */
 @media (min-width: 820px) { .ferr-split { grid-template-columns: 300px 1fr; } }
@@ -387,6 +389,11 @@ button.painel-linha:hover { background: var(--bg); }
 .ferr-form { display: flex; flex-direction: column; gap: 12px; }
 .ferr-form h3 { font-size: 15px; }
 .ferr-form .btn { align-self: flex-start; }
+.ferr-form > .segmented { margin: 0; }
+/* Ferramentas escolhidas para a retirada ou devolução */
+.mov-itens { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 6px; margin-top: -4px; }
+.mov-itens li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 6px 6px 12px; background: var(--bg); border-radius: 10px; font-size: 14px; }
+.mov-itens small { display: block; color: var(--muted); font-size: 12px; }
 .field select:disabled, .field input:disabled { opacity: .6; }
 .ferr-topo { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
 .ferr-titulo { font-size: 13px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; display: flex; align-items: center; gap: 8px; }
@@ -407,6 +414,12 @@ button.painel-linha:hover { background: var(--bg); }
 .ferr-busca input { padding: 8px 0; font-size: 14px; }
 .ferr-dica { margin: 0 2px 12px; }
 .painel-cards-3 { grid-template-columns: repeat(3, 1fr); margin-bottom: 18px; }
+.ferr .painel-cards { margin-bottom: 18px; }
+@media (min-width: 720px) { .ferr .painel-cards:not(.painel-cards-3) { grid-template-columns: repeat(4, 1fr); } }
+/* Manutenção na janela da ferramenta */
+.manutencao { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; background: var(--bg); border-radius: 12px; font-size: 14px; }
+.manutencao small { font-size: 12px; }
+.manutencao-botoes { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
 .muted { color: var(--muted); }
 .nowrap { white-space: nowrap; }
 

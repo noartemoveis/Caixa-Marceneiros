@@ -331,6 +331,12 @@
         <span>Nome</span>
         <input name="nome" required autocomplete="off" maxlength="60" placeholder="Ex: Parafusadeira Makita">
       </label>
+      <label class="field">
+        <span>Revisão a cada quantos meses? (opcional)</span>
+        <input name="revisaoMeses" type="number" inputmode="numeric" min="0" max="60" step="1" placeholder="Ex: 6 (vazio = sem revisão)">
+      </label>
+      <!-- Manutenção: situação de agora e os botões (preenchido pelo app.js; só ao editar) -->
+      <div class="manutencao" id="ferramenta-manutencao" hidden></div>
       <div class="sheet-actions">
         <button type="button" class="btn btn-ghost" data-action="close">Cancelar</button>
         <button class="btn btn-primary">Salvar</button>

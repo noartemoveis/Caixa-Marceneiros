@@ -948,61 +948,107 @@ const rotuloFerramenta = f => `${f.codigo} · ${f.nome}`;
 const formatDataHora = timestamp =>
   momento(timestamp).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
-// Formulário de movimentação: os valores ficam no estado para não sumirem
-// quando chegam dados novos do banco e a tela é redesenhada
-const formMovVazio = () => ({ ferramenta: '', pessoa: '', acao: 'retirada', obs: '' });
+// ---------- Manutenção e revisão ----------
+// situacao: 'defeito' (separada, esperando conserto) ou 'assistencia' (fora, consertando).
+// Em manutenção a ferramenta não pode ser retirada.
 
-// Ao escolher a ferramenta, a ação acompanha: se está fora, é devolução de quem está com ela
-function escolherFerramentaMov(id) {
-  const f = state.ferramentas.find(x => x.id === id);
-  const eraDevolucao = state.ferrForm.acao === 'devolucao';
-  state.ferrForm.ferramenta = id;
-  state.ferrForm.acao = f?.comQuem ? 'devolucao' : 'retirada';
-  if (f?.comQuem) state.ferrForm.pessoa = f.comQuem.pessoaId;
-  // Vindo de uma devolução, não deixa o nome de quem devolveu escolhido para a nova retirada
-  else if (eraDevolucao) state.ferrForm.pessoa = '';
+const SITUACOES = { defeito: ['Com defeito', 'tag-red'], assistencia: ['Na assistência', ''] };
+const ferramentaDe = id => state.ferramentas.find(f => f.id === id);
+const disponivel = f => f.ativo !== false && !f.comQuem && !f.situacao;
+const tagSituacao = f => `<span class="tag ${SITUACOES[f.situacao][1]}">${SITUACOES[f.situacao][0]}</span>`;
+
+// Revisão periódica: vence "revisaoMeses" meses depois da última revisão ou conserto (ou do cadastro)
+function proximaRevisao(f) {
+  if (!(Number(f.revisaoMeses) > 0)) return null;
+  const d = new Date(momento(f.ultimaRevisao || f.criadoEm));
+  d.setMonth(d.getMonth() + Number(f.revisaoMeses));
+  return d;
 }
+const revisaoVencida = f => f.ativo !== false && proximaRevisao(f) !== null && proximaRevisao(f) <= new Date();
+
+// ---------- Formulário de movimentação ----------
+// Retirada: uma ou várias ferramentas para a mesma pessoa. Devolução: uma ou várias, com o estado (OK ou com defeito).
+// Os valores ficam no estado para não sumirem quando chegam dados novos do banco e a tela é redesenhada.
+
+const formMovVazio = (acao = 'retirada') => ({ acao, itens: [], pessoa: '', obs: '', estado: 'ok' });
+
+// Itens que podem entrar na lista: na retirada, as disponíveis; na devolução, as que estão fora
+const podeEntrar = (f, acao) => f.ativo !== false && (acao === 'devolucao' ? Boolean(f.comQuem) : disponivel(f));
 
 function formMovimentacao() {
-  const { ferramenta, pessoa, acao, obs } = state.ferrForm;
+  const { acao, itens, pessoa, obs, estado } = state.ferrForm;
   const devolucao = acao === 'devolucao';
+  const escolhidas = itens.map(ferramentaDe).filter(Boolean);
   const pessoas = state.equipe.filter(p => p.ativo !== false || p.id === pessoa).sort(porNome);
-  const opcao = (valor, texto, escolhido) =>
-    `<option value="${valor}"${escolhido ? ' selected' : ''}>${escapeHtml(texto)}</option>`;
+  const opcao = (valor, texto, escolhido, desligado) =>
+    `<option value="${valor}"${escolhido ? ' selected' : ''}${desligado ? ' disabled' : ''}>${escapeHtml(texto)}</option>`;
+
+  // Na lista de escolha aparecem todas; as que não servem para esta ação ficam apagadas, com o motivo
+  const motivo = f => (f.comQuem ? `com ${nomeDaPessoa(f.comQuem.pessoaId, f.comQuem.nome)}`
+    : f.situacao ? SITUACOES[f.situacao][0].toLowerCase() : 'na empresa');
+  const opcoes = ferramentasAtivas().filter(f => !itens.includes(f.id)).map(f => {
+    const serve = podeEntrar(f, acao);
+    return opcao(f.id, `${rotuloFerramenta(f)}${serve && !devolucao ? '' : ` (${motivo(f)})`}`, false, !serve);
+  }).join('');
+
+  const lista = escolhidas.length ? `
+    <ul class="mov-itens">
+      ${escolhidas.map(f => `
+        <li>
+          <span>${itemHtml(rotuloFerramenta(f))}${devolucao && f.comQuem ? `<small>com ${escapeHtml(nomeDaPessoa(f.comQuem.pessoaId, f.comQuem.nome))}</small>` : ''}</span>
+          <button type="button" class="icon-btn sm" data-action="mov-tirar" data-id="${f.id}" aria-label="Tirar da lista">✕</button>
+        </li>`).join('')}
+    </ul>` : '';
+
+  const botaoAcao = (id, rotulo) =>
+    `<button type="button" class="${acao === id ? 'active' : ''}" data-action="mov-acao" data-acao="${id}">${rotulo}</button>`;
+  const botaoEstado = (id, rotulo) =>
+    `<button type="button" class="${estado === id ? 'active' : ''}" data-action="mov-estado" data-estado="${id}">${rotulo}</button>`;
+  const qtd = escolhidas.length;
 
   return `
     <form class="ferr-card ferr-form" data-form="movFerramenta">
       <h3>Nova movimentação</h3>
+      <div class="segmented">${botaoAcao('retirada', 'Retirada')}${botaoAcao('devolucao', 'Devolução')}</div>
       <label class="field">
-        <span>Item</span>
-        <select name="ferramenta" required data-mov="ferramenta">
-          ${opcao('', 'Escolha a ferramenta', !ferramenta)}
-          ${ferramentasAtivas().map(f => opcao(f.id,
-            `${rotuloFerramenta(f)}${f.comQuem ? ` (com ${nomeDaPessoa(f.comQuem.pessoaId, f.comQuem.nome)})` : ''}`,
-            f.id === ferramenta)).join('')}
+        <span>${devolucao ? 'Ferramentas devolvidas' : 'Ferramentas levadas'}${qtd ? ` (${qtd})` : ''}</span>
+        <select data-mov="item" aria-label="Adicionar ferramenta">
+          ${opcao('', qtd ? '+ Adicionar outra ferramenta' : 'Escolha a ferramenta', true)}
+          ${opcoes}
         </select>
       </label>
-      <label class="field">
-        <span>Marceneiro</span>
-        <select name="pessoa" required data-mov="pessoa" ${devolucao ? 'disabled' : ''}>
-          ${opcao('', 'Quem está levando?', !pessoa)}
-          ${pessoas.map(p => opcao(p.id, p.nome, p.id === pessoa)).join('')}
-        </select>
-      </label>
-      <label class="field">
-        <span>Ação</span>
-        <select name="acao" data-mov="acao">
-          ${opcao('retirada', 'Retirada', !devolucao)}
-          ${opcao('devolucao', 'Devolução', devolucao)}
-        </select>
-      </label>
-      <label class="field">
-        <span>Observações</span>
-        <input name="obs" data-mov="obs" data-manter-foco="obs-ferr" autocomplete="off" maxlength="80" placeholder="Ex: obra, motivo..." value="${escapeHtml(obs)}"
-          ${devolucao ? 'disabled' : ''}>
-      </label>
-      <button class="btn btn-primary">${icon('plus')} Registrar</button>
+      ${lista}
+      ${devolucao ? `
+        <div class="field">
+          <span>Estado</span>
+          <div class="segmented">${botaoEstado('ok', 'OK')}${botaoEstado('defeito', 'Com defeito')}</div>
+        </div>
+        <label class="field">
+          <span>${estado === 'defeito' ? 'O que aconteceu?' : 'Observações'}</span>
+          <input name="obs" data-mov="obs" data-manter-foco="obs-ferr" autocomplete="off" maxlength="80"
+            placeholder="${estado === 'defeito' ? 'Ex: motor fazendo barulho' : 'Opcional'}" value="${escapeHtml(obs)}">
+        </label>` : `
+        <label class="field">
+          <span>Marceneiro</span>
+          <select name="pessoa" data-mov="pessoa">
+            ${opcao('', 'Quem está levando?', !pessoa)}
+            ${pessoas.map(p => opcao(p.id, p.nome, p.id === pessoa)).join('')}
+          </select>
+        </label>
+        <label class="field">
+          <span>Observações</span>
+          <input name="obs" data-mov="obs" data-manter-foco="obs-ferr" autocomplete="off" maxlength="80" placeholder="Ex: obra, motivo..." value="${escapeHtml(obs)}">
+        </label>`}
+      <button class="btn btn-primary">${icon('plus')} Registrar ${devolucao ? 'devolução' : 'retirada'}${qtd > 1 ? ` (${qtd})` : ''}</button>
     </form>`;
+}
+
+// Escolheu uma ferramenta na lista: entra na movimentação (sem repetir)
+function adicionarItemMov(id) {
+  const f = ferramentaDe(id);
+  const form = state.ferrForm;
+  if (!f || form.itens.includes(id) || !podeEntrar(f, form.acao)) return;
+  form.itens.push(id);
 }
 
 // ---------- Histórico: ao vivo só os últimos meses; o mais antigo vem quando pedem ----------
@@ -1082,7 +1128,21 @@ function itemHtml(texto) {
   return resto.length ? `<b>${escapeHtml(codigo)}</b> <span class="muted">${escapeHtml(resto.join(' · '))}</span>` : escapeHtml(texto);
 }
 
-const tagAcao = m => (m.acao === 'retirada' ? '<span class="tag">Retirada</span>' : '<span class="tag tag-green">Devolução</span>');
+// Nome e cor de cada tipo de movimentação (as de manutenção não têm pessoa)
+const ACOES_MOV = {
+  retirada: ['Retirada', ''],
+  devolucao: ['Devolução', 'tag-green'],
+  defeito: ['Com defeito', 'tag-red'],
+  assistencia: ['Assistência', 'tag-cinza'],
+  conserto: ['Consertada', 'tag-green'],
+  revisao: ['Revisão', 'tag-cinza'],
+};
+const ehManutencao = m => !['retirada', 'devolucao'].includes(m.acao);
+const textoAcao = m => (m.acao === 'devolucao' && m.estado === 'defeito' ? 'Devolução (com defeito)' : ACOES_MOV[m.acao]?.[0] ?? m.acao);
+const tagAcao = m => {
+  const defeito = m.acao === 'devolucao' && m.estado === 'defeito';
+  return `<span class="tag ${defeito ? 'tag-red' : ACOES_MOV[m.acao]?.[1] ?? ''}">${textoAcao(m)}</span>`;
+};
 
 // Chave inglesa no topo da tela inicial: o número é quantas estão fora (vermelho se alguma passou do prazo)
 function botaoFerramentas() {
@@ -1107,13 +1167,13 @@ function historicoFerramentasHtml() {
         <thead><tr><th>Data/hora</th><th>Item</th><th>Marceneiro</th><th>Ação</th><th>Obs.</th><th></th></tr></thead>
         <tbody>
           ${lista.slice(0, LIMITE).map(m => `
-            <tr class="clicavel" data-action="ver-movimento" data-id="${m.id}" title="Corrigir ou excluir">
+            <tr${ehManutencao(m) ? '' : ` class="clicavel" data-action="ver-movimento" data-id="${m.id}" title="Corrigir ou excluir"`}>
               <td class="nowrap">${formatDataHora(m.criadoEm)}</td>
               <td>${itemHtml(m.ferramenta)}</td>
-              <td>${escapeHtml(m.pessoa)}</td>
+              <td>${escapeHtml(m.pessoa) || '-'}</td>
               <td>${tagAcao(m)}</td>
               <td class="muted">${escapeHtml(m.obs) || '-'}${m.alteracoes?.length ? ' <small>(corrigida)</small>' : ''}</td>
-              <td class="tabela-icone">${icon('edit')}</td>
+              <td class="tabela-icone">${ehManutencao(m) ? '' : icon('edit')}</td>
             </tr>`).join('')}
         </tbody>
       </table>
@@ -1151,18 +1211,24 @@ function abaPainelItens() {
   const ativas = ferramentasAtivas();
   const emUso = ativas.filter(f => f.comQuem).length;
   const desativadas = state.ferramentas.filter(f => f.ativo === false);
+  // Manutenção: com defeito, na assistência ou com a revisão vencida
+  const precisaManutencao = f => Boolean(f.situacao) || revisaoVencida(f);
+  const emManutencao = ativas.filter(f => f.situacao).length;
   // Tipo desconhecido (ou vazio) entra em "Outro", para nenhuma ferramenta sumir da lista
   const tipoDe = f => (TIPOS_FERRAMENTA.includes(f.tipo) ? f.tipo : 'Outro');
-  const filtros = ['Todos', ...TIPOS_FERRAMENTA.filter(t => ativas.some(f => tipoDe(f) === t)), ...(desativadas.length ? ['Desativadas'] : [])];
+  const filtros = ['Todos', ...TIPOS_FERRAMENTA.filter(t => ativas.some(f => tipoDe(f) === t)),
+    ...(ativas.some(precisaManutencao) ? ['Manutenção'] : []), ...(desativadas.length ? ['Desativadas'] : [])];
   // "Marceneiros" fica junto dos filtros: troca a tabela de ferramentas pela lista de pessoas
   const verPessoas = state.ferrFiltro === 'Marceneiros';
   const filtro = filtros.includes(state.ferrFiltro) ? state.ferrFiltro : verPessoas ? '' : 'Todos';
   const lista = filtro === 'Desativadas' ? [...desativadas].sort(porCodigo)
+    : filtro === 'Manutenção' ? ativas.filter(precisaManutencao)
     : ativas.filter(f => filtro === 'Todos' || tipoDe(f) === filtro);
 
   const status = f => {
     if (f.ativo === false) return '<span class="tag tag-cinza">Desativada</span>';
-    if (!f.comQuem) return '<span class="tag tag-green">Disponível</span>';
+    if (f.situacao) return tagSituacao(f);
+    if (!f.comQuem) return `<span class="tag tag-green">Disponível</span>${revisaoVencida(f) ? ' <span class="tag">Revisão vencida</span>' : ''}`;
     return atrasada(f) ? `<span class="tag tag-red" title="Prazo: ${prazoDe(f)} dias">Fora há ${diasFora(f)} dias</span>` : '<span class="tag">Em uso</span>';
   };
 
@@ -1199,10 +1265,11 @@ function abaPainelItens() {
   };
 
   return `
-    <div class="painel-cards painel-cards-3">
+    <div class="painel-cards">
       <div><small>Itens cadastrados</small><strong>${ativas.length}</strong></div>
-      <div><small>Disponíveis</small><strong class="pos">${ativas.length - emUso}</strong></div>
+      <div><small>Disponíveis</small><strong class="pos">${ativas.filter(disponivel).length}</strong></div>
       <div><small>Em uso</small><strong class="tone-amber">${emUso}</strong></div>
+      <div><small>Em manutenção</small><strong class="${emManutencao ? 'neg' : ''}">${emManutencao}</strong></div>
     </div>
 
     <div class="ferr-topo">
@@ -1232,6 +1299,113 @@ function abaPainelItens() {
       </div>`}`;
 }
 
+// ---------- Relatório de uso ----------
+// No período escolhido: quais ferramentas mais saem, quem mais pega, quanto tempo ficam fora,
+// quais voltam com defeito e quais quase não saem (ajuda a decidir se vale comprar outra ou vender).
+
+const DIA_MS = 86400000;
+const formatDias = dias => (dias < 1 ? 'menos de 1 dia'
+  : `${dias.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} dia${dias >= 2 ? 's' : ''}`);
+
+// Cada retirada feita no período, com quanto tempo ficou fora (até a devolução, ou até hoje se ainda está fora;
+// sem passar do fim do período) e se voltou com defeito
+function usosNoPeriodo() {
+  const { inicio, fim } = state.ferrPeriodo;
+  const desde = inicio ? new Date(`${inicio}T00:00:00`).getTime() : 0;
+  const ate = Math.min(Date.now(), fim ? new Date(`${addDays(fim, 1)}T00:00:00`).getTime() : Infinity);
+  const movs = movimentosAtivos().filter(m => !ehManutencao(m)).sort((a, b) => momento(a.criadoEm) - momento(b.criadoEm));
+
+  const usos = [];
+  const abertas = new Map(); // ferramenta → retirada ainda sem devolução
+  for (const m of movs) {
+    if (m.acao === 'retirada') {
+      abertas.set(m.ferramentaId, m);
+    } else if (abertas.has(m.ferramentaId)) {
+      usos.push({ retirada: abertas.get(m.ferramentaId), volta: +momento(m.criadoEm), defeito: m.estado === 'defeito' });
+      abertas.delete(m.ferramentaId);
+    }
+  }
+  abertas.forEach(retirada => usos.push({ retirada, volta: Date.now(), defeito: false }));
+
+  return usos
+    .filter(u => +momento(u.retirada.criadoEm) >= desde && +momento(u.retirada.criadoEm) < ate)
+    .map(u => ({ ...u, dias: Math.max(0, Math.min(u.volta, ate) - momento(u.retirada.criadoEm)) / DIA_MS }));
+}
+
+function abaRelatorio() {
+  if (state.carregandoHistorico) return '<p class="empty">Buscando o histórico desse período…</p>';
+  const usos = usosNoPeriodo();
+
+  // Agrupa por uma chave e soma vezes, dias e defeitos
+  const agrupar = chave => {
+    const grupos = new Map();
+    usos.forEach(u => {
+      const k = chave(u);
+      const g = grupos.get(k) ?? { vezes: 0, dias: 0, defeitos: 0, ferramentas: new Set(), u };
+      g.vezes++;
+      g.dias += u.dias;
+      if (u.defeito) g.defeitos++;
+      g.ferramentas.add(u.retirada.ferramentaId);
+      grupos.set(k, g);
+    });
+    return [...grupos.entries()].sort(([, a], [, b]) => b.vezes - a.vezes || b.dias - a.dias);
+  };
+
+  const porFerramenta = agrupar(u => u.retirada.ferramentaId);
+  const porPessoa = agrupar(u => u.retirada.pessoaId);
+  const usadas = new Set(porFerramenta.map(([id]) => id));
+  const paradas = ferramentasAtivas().filter(f => !usadas.has(f.id));
+
+  const linhasFerramentas = porFerramenta.map(([id, g]) => `
+    <tr>
+      <td>${itemHtml(ferramentaDe(id) ? rotuloFerramenta(ferramentaDe(id)) : g.u.retirada.ferramenta)}</td>
+      <td class="num">${g.vezes}</td>
+      <td class="num nowrap">${formatDias(g.dias)}</td>
+      <td class="num nowrap">${formatDias(g.dias / g.vezes)}</td>
+      <td class="num${g.defeitos ? ' neg' : ' muted'}">${g.defeitos || '-'}</td>
+    </tr>`).join('');
+
+  const linhasPessoas = porPessoa.map(([id, g]) => `
+    <tr>
+      <td>${escapeHtml(nomeDaPessoa(id, g.u.retirada.pessoa))}</td>
+      <td class="num">${g.vezes}</td>
+      <td class="num">${g.ferramentas.size}</td>
+      <td class="num nowrap">${formatDias(g.dias)}</td>
+      <td class="num${g.defeitos ? ' neg' : ' muted'}">${g.defeitos || '-'}</td>
+    </tr>`).join('');
+
+  const totalDias = usos.reduce((t, u) => t + u.dias, 0);
+  const tabela = (cabecalho, linhas, vazio) => (linhas ? `
+    <div class="tabela-wrap"><table class="tabela"><thead><tr>${cabecalho}</tr></thead><tbody>${linhas}</tbody></table></div>`
+    : `<p class="empty">${vazio}</p>`);
+
+  return `
+    <div class="ferr-topo">
+      <button class="period-btn" data-action="abrir-periodo-ferr">${icon('calendar')} ${rotuloPeriodo(state.ferrPeriodo)}</button>
+      <p class="hint">Conta as retiradas feitas no período.</p>
+    </div>
+
+    <div class="painel-cards">
+      <div><small>Retiradas</small><strong>${usos.length}</strong></div>
+      <div><small>Tempo fora (média)</small><strong>${usos.length ? formatDias(totalDias / usos.length) : '-'}</strong></div>
+      <div><small>Voltaram com defeito</small><strong class="${usos.some(u => u.defeito) ? 'neg' : ''}">${usos.filter(u => u.defeito).length}</strong></div>
+      <div><small>Não saíram</small><strong>${paradas.length}</strong></div>
+    </div>
+
+    <h3 class="ferr-titulo">Ferramentas que mais saem</h3>
+    ${tabela('<th>Ferramenta</th><th class="num">Vezes</th><th class="num">Tempo fora</th><th class="num">Média por vez</th><th class="num">Defeitos</th>',
+      linhasFerramentas, 'Nenhuma retirada neste período.')}
+
+    <h3 class="ferr-titulo">Quem mais pega</h3>
+    ${tabela('<th>Marceneiro</th><th class="num">Retiradas</th><th class="num">Ferramentas diferentes</th><th class="num">Tempo fora</th><th class="num">Devolveu com defeito</th>',
+      linhasPessoas, 'Nenhuma retirada neste período.')}
+
+    <h3 class="ferr-titulo">Não saíram neste período (${paradas.length})</h3>
+    ${paradas.length
+      ? `<div class="chips relatorio-paradas">${paradas.map(f => `<span class="chip">${escapeHtml(rotuloFerramenta(f))}</span>`).join('')}</div>`
+      : '<p class="empty">Todas as ferramentas saíram pelo menos uma vez.</p>'}`;
+}
+
 function viewFerramentas() {
   const header = `
     <header class="topbar">
@@ -1258,14 +1432,15 @@ function viewFerramentas() {
       </div>`;
   }
 
-  const ABAS = [['mov', 'Movimentação'], ['painel', 'Painel de itens']];
+  const ABAS = [['mov', 'Movimentação'], ['painel', 'Painel de itens'], ['relatorio', 'Relatório']];
+  const conteudo = { mov: abaMovimentacao, painel: abaPainelItens, relatorio: abaRelatorio }[state.ferrAba] ?? abaMovimentacao;
   return `
     <div class="ferr">
       ${header}
-      <div class="segmented ferr-abas">
+      <div class="segmented segmented-3 ferr-abas">
         ${ABAS.map(([id, rotulo]) => `<button type="button" class="${state.ferrAba === id ? 'active' : ''}" data-action="ferr-aba" data-aba="${id}">${rotulo}</button>`).join('')}
       </div>
-      ${state.ferrAba === 'painel' ? abaPainelItens() : abaMovimentacao()}
+      ${conteudo()}
     </div>`;
 }
 
@@ -1280,7 +1455,40 @@ function abrirFerramenta(id = '') {
     codigo: f?.codigo ?? '',
     nome: f?.nome ?? '',
     tipo: TIPOS_FERRAMENTA.includes(f?.tipo) ? f.tipo : f ? 'Outro' : TIPOS_FERRAMENTA[0],
+    revisaoMeses: f?.revisaoMeses || '',
   });
+  const manut = $('#ferramenta-manutencao');
+  manut.innerHTML = f && f.ativo !== false ? manutencaoHtml(f) : '';
+  manut.hidden = !manut.innerHTML;
+}
+
+// Parte "Manutenção" da janela da ferramenta: como ela está e os botões que fazem sentido agora
+function manutencaoHtml(f) {
+  const botao = (acao, rotulo, tom = 'ghost') =>
+    `<button type="button" class="btn btn-${tom} btn-sm" data-action="manutencao" data-manut="${acao}">${rotulo}</button>`;
+  const proxima = proximaRevisao(f);
+  const revisao = proxima
+    ? `<small class="${revisaoVencida(f) ? 'neg' : 'muted'}">Próxima revisão: ${proxima.toLocaleDateString('pt-BR')}${revisaoVencida(f) ? ' (vencida)' : ''}</small>` : '';
+  const ultima = f.ultimaRevisao ? `<small class="muted">Última revisão ou conserto: ${formatDataHora(f.ultimaRevisao)}</small>` : '';
+
+  let situacao;
+  let botoes;
+  if (f.comQuem) {
+    situacao = `Está com ${escapeHtml(nomeDaPessoa(f.comQuem.pessoaId, f.comQuem.nome))}. Registre a devolução para mexer na manutenção.`;
+    botoes = '';
+  } else if (f.situacao) {
+    situacao = `${tagSituacao(f)} desde ${formatDataHora(f.situacaoDesde)}${f.situacaoObs ? ` · ${escapeHtml(f.situacaoObs)}` : ''}`;
+    botoes = (f.situacao === 'defeito' ? botao('assistencia', 'Enviar para assistência') : '') + botao('conserto', 'Voltou consertada', 'green');
+  } else {
+    situacao = '<span class="tag tag-green">Funcionando</span>';
+    botoes = botao('defeito', 'Marcar com defeito') + botao('assistencia', 'Enviar para assistência')
+      + (f.revisaoMeses ? botao('revisao', 'Revisão feita') : '');
+  }
+  return `
+    <strong>Manutenção</strong>
+    <p>${situacao}</p>
+    ${ultima}${revisao}
+    ${botoes ? `<div class="manutencao-botoes">${botoes}</div>` : ''}`;
 }
 
 function abrirPessoa(id = '') {
@@ -1297,7 +1505,7 @@ function abrirPessoa(id = '') {
 // Movimentações da ferramenta direto do banco, da mais recente para a mais antiga
 // (a retirada que importa pode ser de antes dos meses carregados na tela)
 const historicoDaFerramenta = async ferramentaId =>
-  (await Store.movimentosDaFerramenta(ferramentaId)).filter(m => !m.excluido).sort(porMaisRecente);
+  (await Store.movimentosDaFerramenta(ferramentaId)).filter(m => !m.excluido && !ehManutencao(m)).sort(porMaisRecente);
 
 // Uma movimentação antiga (buscada pelo filtro de data) não atualiza sozinha: aplica a correção na cópia da tela
 function atualizarMovimentoAntigo(id, campos) {
@@ -1312,7 +1520,7 @@ function abrirMovimento(id) {
   const pessoas = state.equipe.filter(p => p.ativo !== false || p.id === m.pessoaId).sort(porNome);
   form.elements.pessoa.innerHTML = pessoas.map(p => `<option value="${p.id}">${escapeHtml(p.nome)}</option>`).join('');
   $('#movimento-resumo').innerHTML = `${m.acao === 'retirada' ? 'Retirada' : 'Devolução'} de <b>${escapeHtml(m.ferramenta)}</b> em ${formatDataHora(m.criadoEm)}`;
-  $('#movimento-obs').hidden = m.acao !== 'retirada';
+  $('#movimento-obs').hidden = false; // retirada: a obra; devolução: o que aconteceu
   const antes = (m.alteracoes ?? []).map(a =>
     `<li><b>Corrigida em ${formatMomento({ toDate: () => new Date(a.em) })}</b><br>Antes: ${escapeHtml(a.antes.pessoa)}${a.antes.obs ? ` · ${escapeHtml(a.antes.obs)}` : ''}</li>`).join('');
   $('#movimento-historico').innerHTML = antes;
@@ -1360,8 +1568,8 @@ async function imprimirFerramentas() {
     <tr>
       <td>${formatDataHora(m.criadoEm)}</td>
       <td>${escapeHtml(m.ferramenta)}</td>
-      ${p ? '' : `<td>${escapeHtml(m.pessoa)}</td>`}
-      <td>${m.acao === 'retirada' ? 'Retirada' : 'Devolução'}</td>
+      ${p ? '' : `<td>${escapeHtml(m.pessoa) || '-'}</td>`}
+      <td>${textoAcao(m)}</td>
       <td>${escapeHtml(m.obs || '')}</td>
     </tr>`).join('');
 
@@ -2188,7 +2396,7 @@ async function baixarBackup() {
     Código: f.codigo,
     Ferramenta: f.nome,
     Tipo: f.tipo || '',
-    Situação: f.ativo === false ? 'Desativada' : f.comQuem ? 'Em uso' : 'Na empresa',
+    Situação: f.ativo === false ? 'Desativada' : f.comQuem ? 'Em uso' : f.situacao ? SITUACOES[f.situacao][0] : 'Na empresa',
     'Com quem': f.comQuem ? nomeDaPessoa(f.comQuem.pessoaId, f.comQuem.nome) : '',
     Desde: f.comQuem ? dataHora(f.comQuem.desde) : '',
     Obra: f.comQuem?.obs || '',
@@ -2196,7 +2404,7 @@ async function baixarBackup() {
   const movimentos = (await Store.buscarMovimentos(null, null)).sort(porMaisRecente).map(m => ({
     Quando: dataHora(m.criadoEm),
     Pessoa: nomeDaPessoa(m.pessoaId, m.pessoa),
-    Ação: m.acao === 'retirada' ? 'Retirada' : 'Devolução',
+    Ação: textoAcao(m),
     Ferramenta: m.ferramenta,
     Obra: m.obs || '',
     Situação: m.excluido ? `Excluída em ${dataHora(m.excluidoEm)}` : m.alteracoes?.length ? 'Corrigida' : 'Normal',
@@ -2414,7 +2622,9 @@ const actions = {
     });
     if (!confirmado) return;
     try {
-      await Store.excluirMovimento(m, comQuem);
+      const f = ferramentaDe(m.ferramentaId);
+      const extra = comQuem && m.estado === 'defeito' && f?.situacao === 'defeito' ? { situacao: null, situacaoObs: '' } : {};
+      await Store.excluirMovimento(m, comQuem, extra);
       atualizarMovimentoAntigo(m.id, { excluido: true });
       render();
       toast('Movimentação excluída.');
@@ -2423,23 +2633,54 @@ const actions = {
     }
   },
   // Devolução direto pela linha do painel de itens
-  'devolver-ferramenta': async el => {
-    if (!exigeInternet()) return;
-    const f = state.ferramentas.find(x => x.id === el.dataset.id);
+  'devolver-ferramenta': el => {
+    const f = ferramentaDe(el.dataset.id);
     if (!f?.comQuem) return;
+    state.ferrForm = { ...formMovVazio('devolucao'), itens: [f.id] };
+    state.ferrAba = 'mov';
+    render();
+    window.scrollTo(0, 0);
+  },
+  // Formulário de movimentação: retirada/devolução, estado da devolução e tirar um item da lista
+  'mov-acao': el => {
+    if (state.ferrForm.acao === el.dataset.acao) return;
+    state.ferrForm = formMovVazio(el.dataset.acao); // trocar a ação limpa a lista (as ferramentas que servem são outras)
+    render();
+  },
+  'mov-estado': el => {
+    state.ferrForm.estado = el.dataset.estado;
+    render();
+  },
+  // Botões de manutenção na janela da ferramenta: pede uma observação e registra
+  'manutencao': async el => {
+    if (!exigeInternet()) return;
+    const f = ferramentaDe($('#dlg-ferramenta form').elements.ferramentaId.value);
+    const acao = el.dataset.manut;
+    const [titulo, pergunta, tom, feito] = {
+      defeito: ['Marcar com defeito', 'O que aconteceu?', 'red', 'separada como com defeito'],
+      assistencia: ['Enviar para assistência', 'Para onde foi ou o que vai consertar? (opcional)', 'primary', 'na assistência'],
+      conserto: ['Voltou consertada', 'O que foi feito? (opcional)', 'green', 'de volta e disponível'],
+      revisao: ['Revisão feita', 'Observação (opcional)', 'green', 'com a revisão registrada'],
+    }[acao];
+    el.closest('dialog').close();
     const confirmado = await confirmar({
-      titulo: 'Devolver ferramenta',
-      corpo: `<p><b>${escapeHtml(nomeDaPessoa(f.comQuem.pessoaId, f.comQuem.nome))}</b> devolveu <b>${escapeHtml(rotuloFerramenta(f))}</b>?</p>`,
-      botao: 'Confirmar devolução',
-      tom: 'green',
+      titulo,
+      corpo: `<p><b>${escapeHtml(rotuloFerramenta(f))}</b></p>
+        <label class="field"><span>${pergunta}</span><input id="manutencao-obs" maxlength="80" autocomplete="off"></label>`,
+      botao: titulo,
+      tom,
     });
     if (!confirmado) return;
     try {
-      await Store.devolverFerramenta(f);
-      toast(`Devolução registrada: ${f.nome}.`);
+      await Store.manutencaoFerramenta(f, acao, $('#manutencao-obs').value.trim());
+      toast(`${f.nome}: ${feito}.`);
     } catch (err) {
       fail(mensagemErro(err));
     }
+  },
+  'mov-tirar': el => {
+    state.ferrForm.itens = state.ferrForm.itens.filter(id => id !== el.dataset.id);
+    render();
   },
   'nova-ferramenta': () => abrirFerramenta(),
   'editar-ferramenta': el => abrirFerramenta(el.dataset.id),
@@ -2766,7 +3007,7 @@ const forms = {
     const m = movimentoDe(f.movId.value);
     const pessoa = pessoaDe(f.pessoa.value);
     if (!m || !pessoa) return fail('Escolha o marceneiro.');
-    const obs = m.acao === 'retirada' ? f.obs.value.trim() : (m.obs || '');
+    const obs = f.obs.value.trim();
     if (pessoa.id === m.pessoaId && obs === (m.obs || '')) return; // nada mudou: só fecha
     // Se é a retirada de agora, a ferramenta passa a constar com a pessoa certa
     const ferramenta = state.ferramentas.find(x => x.id === m.ferramentaId);
@@ -2793,31 +3034,30 @@ const forms = {
     toast('Prazos salvos.');
   },
 
-  // Retirada ou devolução, pelo formulário da aba Movimentação
+  // Retirada ou devolução (uma ou várias ferramentas), pelo formulário da aba Movimentação
   async movFerramenta() {
-    const { ferramenta: id, pessoa: pessoaId, acao, obs } = state.ferrForm;
-    const ferramenta = state.ferramentas.find(x => x.id === id);
-    if (!ferramenta) return fail('Escolha a ferramenta.');
+    const { acao, itens, pessoa: pessoaId, obs, estado } = state.ferrForm;
+    const ferramentas = itens.map(ferramentaDe).filter(Boolean);
+    if (!ferramentas.length) return fail('Escolha a ferramenta.');
+    const nomes = ferramentas.length === 1 ? ferramentas[0].nome : `${ferramentas.length} ferramentas`;
     if (acao === 'retirada') {
-      if (ferramenta.comQuem) {
-        return fail(`Essa ferramenta já está com ${nomeDaPessoa(ferramenta.comQuem.pessoaId, ferramenta.comQuem.nome)}.`);
-      }
       const pessoa = pessoaDe(pessoaId);
       if (!pessoa) return fail('Escolha o marceneiro.');
-      await Store.retirarFerramenta(ferramenta, pessoa, obs.trim());
-      toast(`Retirada registrada: ${ferramenta.nome} com ${pessoa.nome}.`);
+      await Store.retirarFerramentas(ferramentas, pessoa, obs.trim());
+      toast(`Retirada registrada: ${nomes} com ${pessoa.nome}.`);
     } else {
-      if (!ferramenta.comQuem) return fail('Essa ferramenta não está em uso.');
-      await Store.devolverFerramenta(ferramenta);
-      toast(`Devolução registrada: ${ferramenta.nome}.`);
+      await Store.devolverFerramentas(ferramentas, { estado, obs: obs.trim() });
+      toast(estado === 'defeito' ? `Devolução registrada: ${nomes} separada(s) como com defeito.` : `Devolução registrada: ${nomes}.`);
     }
-    state.ferrForm = formMovVazio();
+    state.ferrForm = formMovVazio(acao);
     render();
   },
 
   async ferramenta(f) {
     const id = f.ferramentaId.value;
-    const dados = { codigo: f.codigo.value.trim().toUpperCase(), nome: f.nome.value.trim(), tipo: f.tipo.value };
+    const revisaoMeses = parseInt(f.revisaoMeses.value, 10) || 0;
+    if (revisaoMeses < 0 || revisaoMeses > 60) return fail('Revisão: use de 1 a 60 meses (ou deixe vazio).');
+    const dados = { codigo: f.codigo.value.trim().toUpperCase(), nome: f.nome.value.trim(), tipo: f.tipo.value, revisaoMeses };
     const repetido = state.ferramentas.find(x => x.id !== id && x.codigo.toUpperCase() === dados.codigo);
     if (repetido) return fail(`O código ${dados.codigo} já é de ${repetido.nome}.`);
     if (id) {
@@ -2922,17 +3162,15 @@ document.addEventListener('input', e => {
 
 document.addEventListener('change', e => {
   if (e.target.name === 'liberacao') atualizarAgendaServico(e.target.form);
-  // Formulário de movimentação de ferramentas: guarda a escolha e redesenha (a ação e o marceneiro acompanham a ferramenta)
+  // Formulário de movimentação de ferramentas: a ferramenta escolhida entra na lista; o marceneiro só fica guardado
   if (e.target.matches('select[data-mov]')) {
     const campo = e.target.dataset.mov;
-    if (campo === 'ferramenta') escolherFerramentaMov(e.target.value);
-    else state.ferrForm[campo] = e.target.value;
-    // Devolução é sempre de quem está com a ferramenta: o nome acompanha
-    if (campo === 'acao' && e.target.value === 'devolucao') {
-      const f = state.ferramentas.find(x => x.id === state.ferrForm.ferramenta);
-      state.ferrForm.pessoa = f?.comQuem?.pessoaId ?? '';
+    if (campo === 'item') {
+      adicionarItemMov(e.target.value);
+      render(); // a lista volta para "+ Adicionar outra ferramenta"
+    } else {
+      state.ferrForm[campo] = e.target.value;
     }
-    if (campo !== 'pessoa') render();
   }
   if (e.target.matches('[data-ferr-pessoa]')) {
     state.ferrPessoa = e.target.value;

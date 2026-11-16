@@ -181,6 +181,11 @@ function avisarAgendadosDeHoje() {
     console.error('Aviso de ferramentas: ' + err);
   }
   try {
+    avisarRevisoesVencidas();
+  } catch (err) {
+    console.error('Aviso de revisões: ' + err);
+  }
+  try {
     avisarPedidosParados();
   } catch (err) {
     console.error('Aviso de pedidos parados: ' + err);
@@ -197,6 +202,27 @@ function avisarAgendadosDeHoje() {
       credito ? 'Valor liberado hoje' : 'Desconto agendado para hoje',
       l.desc + ' · ' + (credito ? '+ ' : '− ') + dinheiro(l.valor));
   });
+}
+
+// ---------- Revisões vencidas (às segundas, junto do aviso diário) ----------
+// Ferramentas com revisão a cada X meses que passaram da data. Só às segundas, para não avisar todo dia.
+
+const ACOES_MOV = { retirada: 'Retirada', devolucao: 'Devolução', defeito: 'Com defeito', assistencia: 'Assistência', conserto: 'Consertada', revisao: 'Revisão' };
+
+function avisarRevisoesVencidas() {
+  if (new Date().getDay() !== 1) return; // 1 = segunda-feira
+  const hoje = new Date();
+  const vencidas = listar('ferramentas').filter(f => {
+    if (f.ativo === false || !(Number(f.revisaoMeses) > 0)) return false;
+    const proxima = new Date(f.ultimaRevisao || f.criadoEm || hoje);
+    proxima.setMonth(proxima.getMonth() + Number(f.revisaoMeses));
+    return proxima <= hoje;
+  });
+  if (!vencidas.length) return;
+  const nomes = vencidas.slice(0, 4).map(f => f.codigo + ' ' + f.nome).join(' · ') + (vencidas.length > 4 ? ' e mais ' + (vencidas.length - 4) : '');
+  enviarNotificacao('admin',
+    vencidas.length === 1 ? '1 ferramenta com revisão vencida' : vencidas.length + ' ferramentas com revisão vencida',
+    nomes, SITE_URL + '#ferramentas');
 }
 
 // ---------- Pedidos parados (roda junto do aviso diário das 8h) ----------
@@ -330,7 +356,8 @@ function fazerBackup() {
   escreverAba(planilha.insertSheet('Ferramentas'),
     ['Código', 'Ferramenta', 'Tipo', 'Situação', 'Com quem', 'Desde', 'Obra'],
     ferramentas.map(f => [f.codigo, f.nome, f.tipo || '',
-      f.ativo === false ? 'Desativada' : f.comQuem ? 'Em uso' : 'Na empresa',
+      f.ativo === false ? 'Desativada' : f.comQuem ? 'Em uso'
+        : f.situacao === 'defeito' ? 'Com defeito' : f.situacao === 'assistencia' ? 'Na assistência' : 'Na empresa',
       f.comQuem ? pessoa(f.comQuem.pessoaId, f.comQuem.nome) : '',
       f.comQuem ? quando(f.comQuem.desde) : '', (f.comQuem && f.comQuem.obs) || '']),
     []);
@@ -338,7 +365,8 @@ function fazerBackup() {
   escreverAba(planilha.insertSheet('Retiradas de ferramentas'),
     ['Quando', 'Pessoa', 'Ação', 'Ferramenta', 'Obra', 'Situação'],
     movimentos.map(m => [quando(m.criadoEm), pessoa(m.pessoaId, m.pessoa),
-      m.acao === 'retirada' ? 'Retirada' : 'Devolução', m.ferramenta, m.obs || '',
+      ACOES_MOV[m.acao] ? (m.acao === 'devolucao' && m.estado === 'defeito' ? 'Devolução (com defeito)' : ACOES_MOV[m.acao]) : m.acao,
+      m.ferramenta, m.obs || '',
       // Correções feitas no app: a excluída continua aqui, marcada
       m.excluido ? 'Excluída em ' + quando(m.excluidoEm) : (m.alteracoes || []).length ? 'Corrigida' : 'Normal']),
     []);

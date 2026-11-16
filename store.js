@@ -14,10 +14,13 @@
    O campo "uid" liga cada registro ao login do marceneiro (usado nas regras de segurança).
 
    Controle de ferramentas (só o administrador vê e mexe):
-     ferramentas/{id}  → { codigo, nome, tipo, ativo, comQuem: null | { pessoaId, nome, desde, obs }, criadoEm }
+     ferramentas/{id}  → { codigo, nome, tipo, ativo, comQuem: null | { pessoaId, nome, desde, obs }, criadoEm,
+                           situacao?: null | 'defeito' | 'assistencia', situacaoDesde?, situacaoObs?,
+                           revisaoMeses?, ultimaRevisao? }
      equipe/{id}       → { nome, ativo, criadoEm }  (quem pega ferramenta; não precisa ter conta no Caixa)
-     movimentos/{id}   → { ferramentaId, ferramenta, pessoaId, pessoa, acao: 'retirada' | 'devolucao', obs, criadoEm,
+     movimentos/{id}   → { ferramentaId, ferramenta, pessoaId, pessoa, acao, obs, criadoEm, estado?,
                            alteracoes?, excluido?, excluidoEm? }
+                         acao: 'retirada' | 'devolucao' (estado 'ok' | 'defeito') | 'defeito' | 'assistencia' | 'conserto' | 'revisao'
      config/ferramentas → { prazos: { maquina, ferramenta, broca, outro } }  (dias até a ferramenta contar como atrasada)
    ========================================================= */
 
@@ -315,8 +318,10 @@ export async function movimentosDaFerramenta(ferramentaId) {
 
 export const salvarPrazos = prazos => setDoc(doc(db, 'config', 'ferramentas'), { prazos }, { merge: true });
 
-export const addFerramenta = ({ codigo, nome, tipo }) =>
-  addDoc(collection(db, 'ferramentas'), { codigo, nome, tipo, ativo: true, comQuem: null, criadoEm: serverTimestamp() });
+export const addFerramenta = ({ codigo, nome, tipo, revisaoMeses = 0 }) =>
+  addDoc(collection(db, 'ferramentas'), {
+    codigo, nome, tipo, revisaoMeses, ativo: true, comQuem: null, situacao: null, criadoEm: serverTimestamp(),
+  });
 
 export const updateFerramenta = (id, campos) => updateDoc(doc(db, 'ferramentas', id), campos);
 
@@ -336,30 +341,73 @@ export async function cadastrarListaInicial(ferramentas, nomes) {
 const rotuloFerramenta = f => `${f.codigo} · ${f.nome}`;
 
 // Confere no servidor que ninguém pegou antes (dois aparelhos ao mesmo tempo)
-export async function retirarFerramenta(ferramenta, pessoa, obs = '') {
-  const ref = doc(db, 'ferramentas', ferramenta.id);
+// Retirada de uma ou várias ferramentas de uma vez, para a mesma pessoa.
+// Confere no servidor que nenhuma está fora nem em manutenção (dois aparelhos ao mesmo tempo).
+export async function retirarFerramentas(ferramentas, pessoa, obs = '') {
+  const refs = ferramentas.map(f => doc(db, 'ferramentas', f.id));
   await runTransaction(db, async tx => {
-    const atual = (await tx.get(ref)).data();
-    if (atual?.comQuem) throw new Error(`Essa ferramenta já está com ${atual.comQuem.nome}.`);
-    tx.update(ref, { comQuem: { pessoaId: pessoa.id, nome: pessoa.nome, desde: serverTimestamp(), obs } });
-    tx.set(doc(collection(db, 'movimentos')), {
-      ferramentaId: ferramenta.id, ferramenta: rotuloFerramenta(ferramenta),
-      pessoaId: pessoa.id, pessoa: pessoa.nome,
-      acao: 'retirada', obs, criadoEm: serverTimestamp(),
+    const atuais = await Promise.all(refs.map(ref => tx.get(ref)));
+    atuais.forEach((snap, i) => {
+      const atual = snap.data();
+      const nome = rotuloFerramenta(ferramentas[i]);
+      if (atual?.comQuem) throw new Error(`${nome} já está com ${atual.comQuem.nome}.`);
+      if (atual?.situacao) throw new Error(`${nome} está ${SITUACAO_TEXTO[atual.situacao]}.`);
+    });
+    refs.forEach((ref, i) => {
+      tx.update(ref, { comQuem: { pessoaId: pessoa.id, nome: pessoa.nome, desde: serverTimestamp(), obs } });
+      tx.set(doc(collection(db, 'movimentos')), {
+        ferramentaId: ferramentas[i].id, ferramenta: rotuloFerramenta(ferramentas[i]),
+        pessoaId: pessoa.id, pessoa: pessoa.nome,
+        acao: 'retirada', obs, criadoEm: serverTimestamp(),
+      });
     });
   });
 }
 
-export async function devolverFerramenta(ferramenta) {
+// Devolução de uma ou várias. estado: 'ok' ou 'defeito' (com defeito, a ferramenta fica separada até o conserto)
+export async function devolverFerramentas(ferramentas, { estado = 'ok', obs = '' } = {}) {
+  const refs = ferramentas.map(f => doc(db, 'ferramentas', f.id));
+  await runTransaction(db, async tx => {
+    const atuais = await Promise.all(refs.map(ref => tx.get(ref)));
+    atuais.forEach((snap, i) => {
+      if (!snap.data()?.comQuem) throw new Error(`${rotuloFerramenta(ferramentas[i])} já foi devolvida.`);
+    });
+    refs.forEach((ref, i) => {
+      const { comQuem } = atuais[i].data();
+      tx.update(ref, estado === 'defeito'
+        ? { comQuem: null, situacao: 'defeito', situacaoDesde: serverTimestamp(), situacaoObs: obs }
+        : { comQuem: null });
+      tx.set(doc(collection(db, 'movimentos')), {
+        ferramentaId: ferramentas[i].id, ferramenta: rotuloFerramenta(ferramentas[i]),
+        pessoaId: comQuem.pessoaId, pessoa: comQuem.nome,
+        acao: 'devolucao', estado, obs, criadoEm: serverTimestamp(),
+      });
+    });
+  });
+}
+
+// ---------- Manutenção ----------
+// situacao da ferramenta: null (normal) | 'defeito' (separada, esperando conserto) | 'assistencia' (fora, consertando)
+// acao: 'defeito', 'assistencia', 'conserto' (voltou boa) ou 'revisao' (revisão feita, continua em uso normal).
+// Cada uma também entra no histórico, sem pessoa.
+
+const SITUACAO_TEXTO = { defeito: 'com defeito', assistencia: 'na assistência' };
+
+export async function manutencaoFerramenta(ferramenta, acao, obs = '') {
   const ref = doc(db, 'ferramentas', ferramenta.id);
   await runTransaction(db, async tx => {
     const atual = (await tx.get(ref)).data();
-    if (!atual?.comQuem) throw new Error('Essa ferramenta já foi devolvida.');
-    tx.update(ref, { comQuem: null });
+    if (atual?.comQuem) throw new Error(`${rotuloFerramenta(ferramenta)} está com ${atual.comQuem.nome}. Registre a devolução antes.`);
+    const campos = {
+      defeito: { situacao: 'defeito', situacaoDesde: serverTimestamp(), situacaoObs: obs },
+      assistencia: { situacao: 'assistencia', situacaoDesde: serverTimestamp(), situacaoObs: obs },
+      conserto: { situacao: null, situacaoObs: '', ultimaRevisao: serverTimestamp() },
+      revisao: { ultimaRevisao: serverTimestamp() },
+    }[acao];
+    tx.update(ref, campos);
     tx.set(doc(collection(db, 'movimentos')), {
       ferramentaId: ferramenta.id, ferramenta: rotuloFerramenta(ferramenta),
-      pessoaId: atual.comQuem.pessoaId, pessoa: atual.comQuem.nome,
-      acao: 'devolucao', obs: '', criadoEm: serverTimestamp(),
+      pessoaId: '', pessoa: '', acao, obs, criadoEm: serverTimestamp(),
     });
   });
 }
@@ -379,10 +427,11 @@ export async function editarMovimento(mov, { pessoa, obs }, comQuem) {
   await batch.commit();
 }
 
-export async function excluirMovimento(mov, comQuem) {
+// extra: outros campos da ferramenta a acertar junto (ex.: tirar o "com defeito" de uma devolução excluída)
+export async function excluirMovimento(mov, comQuem, extra = {}) {
   const batch = writeBatch(db);
   batch.update(doc(db, 'movimentos', mov.id), { excluido: true, excluidoEm: serverTimestamp() });
-  if (comQuem !== undefined) batch.update(doc(db, 'ferramentas', mov.ferramentaId), { comQuem });
+  if (comQuem !== undefined) batch.update(doc(db, 'ferramentas', mov.ferramentaId), { comQuem, ...extra });
   await batch.commit();
 }
 
