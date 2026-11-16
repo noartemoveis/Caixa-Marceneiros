@@ -10,6 +10,7 @@ const LEMBRAR_KEY = 'caixa_ultimo_email';
 const AGENDADOS_KEY = 'caixa_agendados';
 const AVISOS_DISPENSADO_KEY = 'caixa_avisos_dispensado';
 const TEMA_KEY = 'caixa_tema'; // 'light', 'dark' ou vazio (segue o aparelho); lido também no index.html
+const LETRA_KEY = 'caixa_letra'; // 'grande' ou vazio; lido também no index.html
 const SITE_URL = location.origin + location.pathname;
 
 // Filtro do extrato e do PDF por tipo de lançamento
@@ -163,6 +164,7 @@ const ICONS = {
   user: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
   search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>',
   check: '<path d="M20 6 9 17l-5-5"/>',
+  clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
   download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>',
   chart: '<path d="M3 3v18h18"/><path d="M7 16v-5M12 16V8M17 16v-9"/>',
   moon: '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>',
@@ -181,6 +183,7 @@ const state = {
   marceneiros: [],
   lancamentos: [],
   pedidos: [],
+  fechamentos: [],      // "Estou de acordo" de cada conta e mês
   carregados: new Set(), // nomes das coleções que já chegaram do banco
   contaId: null,
   filtro: { inicio: null, fim: null, tipo: 'todos', cliente: '' }, // extrato na tela (datas null = todo o histórico)
@@ -209,7 +212,7 @@ const state = {
   config: {},              // configurações do admin (ex.: config.ferramentas.prazos)
 };
 
-const COLECOES = ['marceneiros', 'lancamentos', 'pedidos'];
+const COLECOES = ['marceneiros', 'lancamentos', 'pedidos', 'fechamentos'];
 const COLECOES_FERRAMENTAS = ['ferramentas', 'equipe', 'movimentos', 'config'];
 
 const isAdmin = () => state.user?.role === 'admin';
@@ -402,13 +405,34 @@ function aplicarTema(tema) {
   else delete document.documentElement.dataset.theme;
 }
 
+// Letra grande neste aparelho (para quem enxerga pouco): aumenta a tela toda
+const letraGrande = () => document.documentElement.dataset.letra === 'grande';
+
+function aplicarLetra(grande) {
+  if (grande) document.documentElement.dataset.letra = 'grande';
+  else delete document.documentElement.dataset.letra;
+}
+
+// Botão "A+" no topo: o jeito mais fácil de achar
+const botaoLetra = () => `
+  <button class="icon-btn letra-btn" data-action="letra" data-letra="${letraGrande() ? '' : 'grande'}"
+    title="${letraGrande() ? 'Letra normal' : 'Aumentar letra'}">${letraGrande() ? 'A−' : 'A+'}</button>`;
+
 function seletorTema() {
   const atual = document.documentElement.dataset.theme || '';
+  const grande = letraGrande();
   return `
     <section class="tema">
       <span>${icon('moon')} Aparência</span>
       <div class="segmented segmented-3">
         ${TEMAS.map(([id, rotulo]) => `<button type="button" class="${atual === id ? 'active' : ''}" data-action="tema" data-tema="${id}">${rotulo}</button>`).join('')}
+      </div>
+    </section>
+    <section class="tema">
+      <span>Tamanho da letra</span>
+      <div class="segmented">
+        <button type="button" class="${grande ? '' : 'active'}" data-action="letra" data-letra="">Normal</button>
+        <button type="button" class="${grande ? 'active' : ''}" data-action="letra" data-letra="grande">Grande</button>
       </div>
     </section>`;
 }
@@ -452,6 +476,8 @@ function viewLogin() {
         <button class="btn btn-primary btn-block">Entrar</button>
       </form>
       <button class="link" data-action="esqueci-senha">Esqueci minha senha</button>
+      <button class="link" data-action="letra" data-letra="${letraGrande() ? '' : 'grande'}">
+        ${letraGrande() ? 'Voltar a letra normal' : 'A+ Aumentar a letra'}</button>
     </section>`;
 }
 
@@ -623,6 +649,7 @@ function viewConta() {
           <div><strong>Olá, ${escapeHtml(firstName(m.nome))}</strong><small>Caixa dos Marceneiros · Nô Art</small></div>
         </div>
         <div class="topbar-actions">
+          ${botaoLetra()}
           ${botaoAvisos()}
           <button class="icon-btn" data-action="logout" title="Sair">${icon('logout')}</button>
         </div>
@@ -667,6 +694,7 @@ function viewConta() {
         <strong class="balance-value${saldo < 0 ? ' is-negative' : ''}">${valorVisivel(saldo)}</strong>
       </section>
 
+      ${fechamentoHtml(m)}
       ${isAdmin() ? '' : cartaoNotificacoes()}
 
       <nav class="quick-actions">${acoes}</nav>
@@ -685,6 +713,89 @@ function viewConta() {
 
       ${isAdmin() ? '' : seletorTema()}
     </div>`;
+}
+
+// ---------- Fechamento do mês ("Estou de acordo") ----------
+// A partir do dia 1º, o marceneiro confere o extrato do mês que passou e confirma.
+// Fica registrado para os dois lados; o administrador vê na conta se já foi confirmado.
+
+function mesPassado() {
+  const d = fromIso(today().slice(0, 8) + '01');
+  d.setMonth(d.getMonth() - 1);
+  return toIso(d).slice(0, 7);
+}
+
+const fechamentoDe = (marcId, mes) => state.fechamentos.find(f => f.marcId === marcId && f.mes === mes);
+
+// Entradas e saídas do mês e o saldo no último dia (como no extrato completo)
+function resumoDoMes(marcId, mes) {
+  const inicio = `${mes}-01`;
+  const fim = endOfMonth(inicio);
+  const todos = lancamentosDe(marcId);
+  const doMes = todos.filter(l => l.data >= inicio && l.data <= fim);
+  const soma = tipo => doMes.filter(l => l.tipo === tipo).reduce((s, l) => s + l.valor, 0);
+  return { mes, inicio, fim, entradas: soma('credito'), saidas: soma('debito'), saldoFinal: saldoAte(todos, fim), quantidade: doMes.length };
+}
+
+// Confirmado com outros valores = o escritório mexeu no mês depois da confirmação
+const mudouDepois = (f, r) => ['entradas', 'saidas', 'saldoFinal'].some(campo => Math.abs(f[campo] - r[campo]) > CENTAVO);
+
+function fechamentoHtml(m) {
+  const mes = mesPassado();
+  const f = fechamentoDe(m.id, mes);
+  const r = resumoDoMes(m.id, mes);
+  const nomeMes = nomeDoMes(mes);
+
+  if (f) {
+    const quando = formatMomento(f.confirmadoEm);
+    const aviso = isAdmin() && mudouDepois(f, r) ? ' · <b>houve alteração no mês depois disso</b>' : '';
+    return `<p class="fechamento-status ok">${icon('check')}
+      <span>${isAdmin() ? 'Extrato' : 'Você confirmou o extrato'} de ${nomeMes} ${isAdmin() ? 'confirmado pelo marceneiro ' : ''}em ${quando}${aviso}</span></p>`;
+  }
+  if (!r.quantidade) return ''; // mês sem movimento: nada para conferir
+  if (isAdmin()) {
+    return `<p class="fechamento-status">${icon('clock')}<span>Extrato de ${nomeMes} ainda não confirmado pelo marceneiro.</span></p>`;
+  }
+  return `
+    <div class="aviso-push fechamento">
+      <span class="qa-icon tone-green">${icon('check')}</span>
+      <div class="aviso-push-texto">
+        <strong>Confira o extrato de ${nomeMes}</strong>
+        <small>Veja se está tudo certo e toque em "Estou de acordo".</small>
+      </div>
+      <div class="aviso-push-acoes">
+        <button class="btn btn-primary btn-sm" data-action="abrir-fechamento">Conferir</button>
+      </div>
+    </div>`;
+}
+
+function abrirFechamento() {
+  const m = contaAtual();
+  const r = resumoDoMes(m.id, mesPassado());
+  $('#fechamento-titulo').textContent = `Extrato de ${nomeDoMes(r.mes)}`;
+  $('#fechamento-resumo').innerHTML = `
+    <div><span>Entradas</span><strong class="pos">+ ${formatMoney(r.entradas)}</strong></div>
+    <div><span>Saídas</span><strong class="neg">− ${formatMoney(r.saidas)}</strong></div>
+    <div><span>Saldo em ${formatDate(r.fim)}</span><strong>${formatMoney(r.saldoFinal)}</strong></div>`;
+  openDialog('dlg-fechamento');
+}
+
+// Aviso para o administrador (notificação e e-mail)
+function avisarFechamento(m, mes, deAcordo) {
+  const nomeMes = nomeDoMes(mes);
+  avisar({
+    email: {
+      assunto: deAcordo ? `${m.nome} confirmou o extrato de ${nomeMes}` : `${m.nome} tem dúvida no extrato de ${nomeMes}`,
+      mensagem: deAcordo
+        ? `${m.nome} conferiu o extrato de ${nomeMes} e tocou em "Estou de acordo".\n\nVer no app: ${SITE_URL}`
+        : `${m.nome} conferiu o extrato de ${nomeMes} e tem uma dúvida. Converse com ele.\n\nVer no app: ${SITE_URL}`,
+    },
+    push: {
+      para: 'admin',
+      titulo: deAcordo ? 'Extrato confirmado ✅' : 'Dúvida no extrato',
+      corpo: deAcordo ? `${m.nome} está de acordo com ${nomeMes}.` : `${m.nome} tem dúvida no extrato de ${nomeMes}. Converse com ele.`,
+    },
+  });
 }
 
 // Painel geral do administrador: o movimento real do período (sem estornos e cancelados),
@@ -1521,7 +1632,7 @@ function aoMudarLogin(user) {
   pararEscutas = [];
   fecharJanelas(); // nada fica aberto de outra sessão
   Object.assign(state, {
-    user, marceneiros: [], lancamentos: [], pedidos: [], saldoOculto: false, filtro: filtroInicial(), busca: '',
+    user, marceneiros: [], lancamentos: [], pedidos: [], fechamentos: [], saldoOculto: false, filtro: filtroInicial(), busca: '',
     ferramentas: [], equipe: [], movimentos: [], ferrAba: 'mov', ferrBusca: '', ferrFiltro: 'Todos', ferrPessoa: '', ferrForm: formMovVazio(),
     ferrPeriodo: periodoPadraoHistorico(), movimentosAntigos: [], historicoBuscado: new Set(), historicoTodo: false,
     carregandoHistorico: false, config: {},
@@ -1542,6 +1653,7 @@ function aoMudarLogin(user) {
     Store.watchMarceneiros(user, lista => chegou('marceneiros', lista), erro),
     Store.watchLancamentos(user, lista => chegou('lancamentos', lista), erro),
     Store.watchPedidos(user, lista => chegou('pedidos', lista), erro),
+    Store.watchFechamentos(user, lista => chegou('fechamentos', lista), erro),
   ];
   // Ferramentas: só o administrador carrega (o marceneiro nem tem permissão)
   if (user.role === 'admin') {
@@ -2060,6 +2172,17 @@ async function baixarBackup() {
   XLSX.utils.book_append_sheet(arquivo, aba(pedidos, [22, 16, 13, 30, 12, 14, 16, 34], [2, 5]), 'Pedidos');
   XLSX.utils.book_append_sheet(arquivo, aba(marceneiros, [22, 30, 14, 14, 14], [2, 3, 4]), 'Marceneiros');
 
+  // "Estou de acordo" de cada mês (só entra se já tiver algum)
+  const fechamentos = [...state.fechamentos].sort((a, b) => (b.mes > a.mes ? 1 : b.mes < a.mes ? -1 : 0)).map(f => ({
+    Marceneiro: marceneiroDe(f.marcId)?.nome ?? '(conta excluída)',
+    Mês: nomeDoMes(f.mes),
+    Entradas: f.entradas,
+    Saídas: f.saidas,
+    'Saldo no fim do mês': f.saldoFinal,
+    'Confirmado em': dataHora(f.confirmadoEm),
+  }));
+  if (fechamentos.length) XLSX.utils.book_append_sheet(arquivo, aba(fechamentos, [22, 20, 14, 14, 18, 18], [2, 3, 4]), 'Confirmações do mês');
+
   // Controle de ferramentas (só entra se já tiver algo cadastrado)
   const ferramentas = [...state.ferramentas].sort(porCodigo).map(f => ({
     Código: f.codigo,
@@ -2227,6 +2350,43 @@ const actions = {
     const tema = el.dataset.tema;
     salvarPreferencia(TEMA_KEY, tema);
     aplicarTema(tema);
+    render();
+  },
+  'abrir-fechamento': () => abrirFechamento(),
+  // Mostra no extrato só o mês que está sendo conferido
+  'fechamento-ver-extrato': el => {
+    const { inicio, fim } = resumoDoMes(state.contaId, mesPassado());
+    Object.assign(state, { filtro: { inicio, fim, tipo: 'todos', cliente: '' }, busca: '' });
+    el.closest('dialog').close();
+    render();
+    $('#extrato-conteudo')?.scrollIntoView({ behavior: 'smooth' });
+  },
+  'fechamento-ok': async el => {
+    if (!exigeInternet()) return;
+    const m = contaAtual();
+    const r = resumoDoMes(m.id, mesPassado());
+    el.disabled = true;
+    try {
+      await Store.confirmarFechamento(m, r);
+      el.closest('dialog').close();
+      toast(`Obrigado! Extrato de ${nomeDoMes(r.mes)} confirmado.`);
+      avisarFechamento(m, r.mes, true);
+    } catch (err) {
+      fail(mensagemErro(err));
+    } finally {
+      el.disabled = false;
+    }
+  },
+  'fechamento-duvida': el => {
+    if (!exigeInternet()) return;
+    el.closest('dialog').close();
+    avisarFechamento(contaAtual(), mesPassado(), false);
+    toast('O escritório foi avisado e vai conversar com você.');
+  },
+  'letra': el => {
+    const grande = el.dataset.letra === 'grande';
+    salvarPreferencia(LETRA_KEY, grande ? 'grande' : '');
+    aplicarLetra(grande);
     render();
   },
   'ver-movimento': el => abrirMovimento(el.dataset.id),

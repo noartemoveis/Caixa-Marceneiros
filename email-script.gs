@@ -180,6 +180,11 @@ function avisarAgendadosDeHoje() {
   } catch (err) {
     console.error('Aviso de ferramentas: ' + err);
   }
+  try {
+    avisarPedidosParados();
+  } catch (err) {
+    console.error('Aviso de pedidos parados: ' + err);
+  }
 
   const hoje = hojeISO();
   buscar('lancamentos', 'data', hoje).map(comoObjeto).forEach(l => {
@@ -191,6 +196,35 @@ function avisarAgendadosDeHoje() {
     enviarNotificacao(l.uid,
       credito ? 'Valor liberado hoje' : 'Desconto agendado para hoje',
       l.desc + ' · ' + (credito ? '+ ' : '− ') + dinheiro(l.valor));
+  });
+}
+
+// ---------- Pedidos parados (roda junto do aviso diário das 8h) ----------
+// Lembra o administrador dos pedidos de retirada que esperam resposta há mais de 1 dia
+// (notificação no celular e e-mail).
+
+function avisarPedidosParados() {
+  const umDiaAtras = Date.now() - 24 * 60 * 60 * 1000;
+  const parados = buscar('pedidos', 'status', 'pendente').map(comoObjeto)
+    .filter(p => p.criadoEm && p.criadoEm.getTime() < umDiaAtras)
+    .sort((a, b) => a.criadoEm - b.criadoEm);
+  if (!parados.length) return;
+
+  const nomeDe = {};
+  listar('marceneiros').forEach(m => { nomeDe[m.id] = m.nome; });
+  const dias = p => Math.floor((Date.now() - p.criadoEm.getTime()) / 86400000);
+  const linha = p => (nomeDe[p.marcId] || 'Marceneiro') + ' · ' + dinheiro(p.valor) + ' (há ' + dias(p) + (dias(p) > 1 ? ' dias)' : ' dia)');
+  const titulo = parados.length === 1 ? '1 pedido esperando resposta' : parados.length + ' pedidos esperando resposta';
+
+  const resto = parados.length > 3 ? ' e mais ' + (parados.length - 3) : '';
+  enviarNotificacao('admin', titulo, parados.slice(0, 3).map(linha).join(' · ') + resto, SITE_URL + '#pedidos');
+  MailApp.sendEmail({
+    to: ADMIN_EMAIL,
+    subject: 'Lembrete: ' + titulo,
+    body: 'Estes pedidos de retirada estão esperando resposta há mais de 1 dia:\n\n'
+      + parados.map(p => '• ' + linha(p) + (p.motivo ? ' — ' + p.motivo : '')).join('\n')
+      + '\n\nResponder no app: ' + SITE_URL + '#pedidos',
+    name: 'Caixa dos Marceneiros',
   });
 }
 
@@ -277,6 +311,13 @@ function fazerBackup() {
     ['Nome', 'E-mail', 'Saldo atual'],
     marceneiros.map(m => [m.nome, m.email, saldoDe(m.id)]),
     [3]);
+
+  // "Estou de acordo" de cada mês, do mais recente para o mais antigo
+  const fechamentos = listar('fechamentos').sort((a, b) => (b.mes > a.mes ? 1 : b.mes < a.mes ? -1 : 0));
+  escreverAba(planilha.insertSheet('Confirmações do mês'),
+    ['Marceneiro', 'Mês', 'Entradas', 'Saídas', 'Saldo no fim do mês', 'Confirmado em'],
+    fechamentos.map(f => [marceneiro(f.marcId), f.mes.split('-').reverse().join('/'), f.entradas, f.saidas, f.saldoFinal, quando(f.confirmadoEm)]),
+    [3, 4, 5]);
 
   // Controle de ferramentas: quem está com cada uma e o histórico de retiradas
   const pessoaDe = {};

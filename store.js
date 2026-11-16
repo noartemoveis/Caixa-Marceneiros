@@ -9,6 +9,7 @@
      lancamentos/{id}  → { marcId, uid, tipo, data, desc, cliente, valor, criadoEm,
                            estornado?, estornadoEm?, estornoDe?, cancelado?, canceladoEm?, alteracoes? }
      pedidos/{id}      → { marcId, uid, valor, motivo, status, criadoEm, respondidoEm, valorAprovado?, resposta? }
+     fechamentos/{conta_mês} → { marcId, uid, mes, entradas, saidas, saldoFinal, confirmadoEm }  ("Estou de acordo")
      dispositivos/{código do aparelho} → { uid, papel, atualizadoEm }  (quem recebe notificações)
    O campo "uid" liga cada registro ao login do marceneiro (usado nas regras de segurança).
 
@@ -144,7 +145,7 @@ export async function addMarceneiro({ nome, email }) {
 export const updateMarceneiro = (id, { nome }) => updateDoc(doc(db, 'marceneiros', id), { nome });
 
 export async function removeMarceneiro({ id, uid }) {
-  for (const colecao of ['lancamentos', 'pedidos']) {
+  for (const colecao of ['lancamentos', 'pedidos', 'fechamentos']) {
     await emLotes(await docsDoMarceneiro(colecao, id), (batch, d) => batch.delete(d.ref));
   }
   // Aparelhos dele deixam de receber notificações
@@ -229,9 +230,26 @@ export function editarLancamento(lancamento, { valor, desc, cliente, data }) {
   });
 }
 
+// ---------- Fechamento do mês ----------
+// O marceneiro confere o extrato do mês e toca em "Estou de acordo".
+// Um registro por conta e mês (o código do documento é conta_mês), que não pode ser mudado depois.
+
+export const watchFechamentos = (user, cb, onError) => escutar('fechamentos', user, cb, onError);
+
+export const confirmarFechamento = (marceneiro, { mes, entradas, saidas, saldoFinal }) =>
+  setDoc(doc(db, 'fechamentos', `${marceneiro.id}_${mes}`), {
+    marcId: marceneiro.id,
+    uid: marceneiro.uid,
+    mes,
+    entradas: roundCents(entradas),
+    saidas: roundCents(saidas),
+    saldoFinal: roundCents(saldoFinal),
+    confirmadoEm: serverTimestamp(),
+  });
+
 // ---------- Pedidos de retirada ----------
 
-// Único registro que o marceneiro pode criar (as regras do Firestore garantem isso)
+// O marceneiro só pode criar isto e a confirmação do mês (as regras do Firestore garantem isso)
 export const criarPedido = (marceneiro, { valor, motivo }) =>
   addDoc(collection(db, 'pedidos'), {
     marcId: marceneiro.id,

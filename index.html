@@ -17,11 +17,12 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
-  <!-- Aplica o tema escolhido (claro/escuro) antes de desenhar, para a tela não piscar -->
+  <!-- Aplica o tema (claro/escuro) e a letra grande antes de desenhar, para a tela não piscar -->
   <script>
     try {
       const tema = localStorage.getItem('caixa_tema');
       if (tema === 'light' || tema === 'dark') document.documentElement.dataset.theme = tema;
+      if (localStorage.getItem('caixa_letra') === 'grande') document.documentElement.dataset.letra = 'grande';
     } catch { /* modo anônimo: segue o aparelho */ }
   </script>
 </head>
@@ -439,6 +440,26 @@
       <div class="sheet-actions">
         <button type="button" class="btn btn-ghost" data-action="confirmar-nao">Cancelar</button>
         <button type="button" class="btn btn-primary" id="confirmar-ok" data-action="confirmar-sim">Confirmar</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- ==================== FECHAMENTO DO MÊS (marceneiro) ==================== -->
+
+  <dialog id="dlg-fechamento">
+    <div class="sheet">
+      <div class="sheet-head">
+        <div>
+          <h3 id="fechamento-titulo"></h3>
+          <p class="hint">Confira os valores. Se estiver tudo certo, toque em "Estou de acordo".</p>
+        </div>
+        <button type="button" class="icon-btn sm" data-action="close" aria-label="Fechar">✕</button>
+      </div>
+      <div class="fechamento-resumo" id="fechamento-resumo"></div>
+      <button type="button" class="link" data-action="fechamento-ver-extrato">Ver o extrato completo do mês</button>
+      <div class="sheet-actions">
+        <button type="button" class="btn btn-ghost" data-action="fechamento-duvida">Tenho dúvida</button>
+        <button type="button" class="btn btn-green" data-action="fechamento-ok">Estou de acordo</button>
       </div>
     </div>
   </dialog>

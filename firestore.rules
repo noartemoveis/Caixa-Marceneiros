@@ -5,7 +5,7 @@ rules_version = '2';
 // TROQUE o e-mail abaixo pelo e-mail do administrador (o mesmo do firebase-config.js).
 //
 // Resumo: o administrador faz tudo. O marceneiro só LÊ os próprios dados
-// e só pode CRIAR pedidos de retirada para ele mesmo (sem editar nem apagar).
+// e só pode CRIAR pedidos de retirada e a confirmação do mês para ele mesmo (sem editar nem apagar).
 // O controle de ferramentas é só do administrador.
 
 service cloud.firestore {
@@ -40,6 +40,18 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/marceneiros/$(d.marcId)).data.uid == request.auth.uid;
     }
 
+    // "Estou de acordo" do mês: do próprio marceneiro, com o código conta_mês, na hora do servidor
+    function fechamentoProprioValido(id) {
+      let d = request.resource.data;
+      return request.auth != null
+        && d.keys().hasOnly(['marcId', 'uid', 'mes', 'entradas', 'saidas', 'saldoFinal', 'confirmadoEm'])
+        && d.uid == request.auth.uid
+        && d.mes is string && id == d.marcId + '_' + d.mes
+        && d.entradas is number && d.saidas is number && d.saldoFinal is number
+        && d.confirmadoEm == request.time
+        && get(/databases/$(database)/documents/marceneiros/$(d.marcId)).data.uid == request.auth.uid;
+    }
+
     match /marceneiros/{id} {
       allow read: if isAdmin() || isDono();
       allow write: if isAdmin();
@@ -54,6 +66,13 @@ service cloud.firestore {
     match /pedidos/{id} {
       allow read: if isAdmin() || isDono();
       allow create: if isAdmin() || pedidoProprioValido();
+      allow update, delete: if isAdmin();
+    }
+
+    // Confirmação do mês: o marceneiro só cria a dele, uma vez (sem mudar nem apagar depois)
+    match /fechamentos/{id} {
+      allow read: if isAdmin() || isDono();
+      allow create: if isAdmin() || fechamentoProprioValido(id);
       allow update, delete: if isAdmin();
     }
 
