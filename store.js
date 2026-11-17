@@ -22,7 +22,7 @@
                            alteracoes?, excluido?, excluidoEm? }
                          acao: 'retirada' | 'devolucao' (estado 'ok' | 'defeito') | 'defeito' | 'assistencia' | 'conserto' | 'revisao'
      config/ferramentas → { prazos: { maquina, ferramenta, broca, outro } }  (dias até a ferramenta contar como atrasada)
-    config/parafusos   → { itens: { [id]: { cod, nome, peso, amostra } } }  (peso de 1 peça em gramas, pela contagem de amostra)
+    config/parafusos   → { itens: { [id]: { nome, peso, amostra } } }  (peso de 1 peça em gramas, pela contagem de amostra)
    ========================================================= */
 
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';

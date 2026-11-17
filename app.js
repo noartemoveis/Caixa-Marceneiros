@@ -1415,42 +1415,42 @@ function abaRelatorio() {
 // O peso de 1 peça vem de uma contagem: conta 50 a 100 peças à mão, pesa e divide.
 
 const PARAFUSOS_INICIAIS = [
-  {"cod": "1", "nome": "Parafuso 3x30 Flange", "peso": 1.22, "amostra": 100},
-  {"cod": "2", "nome": "Parafuso 3,5x22 Chato", "peso": 1.12, "amostra": 100},
-  {"cod": "3", "nome": "Parafuso 3,5x40 Chato", "peso": 1.55, "amostra": 100},
-  {"cod": "4", "nome": "Parafuso 4x14 Panela", "peso": 1.13, "amostra": 100},
-  {"cod": "5", "nome": "Parafuso 4x16 Chato", "peso": 1.14, "amostra": 100},
-  {"cod": "6", "nome": "Parafuso 4x25 Chato", "peso": 1.3, "amostra": 100},
-  {"cod": "7", "nome": "Parafuso 4x25 Panela", "peso": 1.66, "amostra": 100},
-  {"cod": "8", "nome": "Parafuso 4x30 Chato", "peso": 1.34, "amostra": 100},
-  {"cod": "9", "nome": "Parafuso 4x35 Chato", "peso": 1.7, "amostra": 100},
-  {"cod": "10", "nome": "Parafuso 4x50 Chato Hafele", "peso": 3.18, "amostra": 100},
-  {"cod": "11", "nome": "Parafuso 4x50 Panela", "peso": 2.7313, "amostra": 67},
-  {"cod": "12", "nome": "Parafuso 4,2x13 Chato", "peso": 1.06, "amostra": 100},
-  {"cod": "13", "nome": "Parafuso 4,5x20 Chato", "peso": 1.35, "amostra": 100},
-  {"cod": "14", "nome": "Parafuso 4,5x40 Chato", "peso": 2.46, "amostra": 100},
-  {"cod": "15", "nome": "Parafuso 4,5x45 Panela", "peso": 3.19, "amostra": 100},
-  {"cod": "16", "nome": "Parafuso 4,5x60 Chato", "peso": 3.56, "amostra": 100},
-  {"cod": "17", "nome": "Parafuso 4,8x25 Chato", "peso": 2.59, "amostra": 100},
-  {"cod": "18", "nome": "Parafuso 5x25 Chato", "peso": 1.97, "amostra": 100},
-  {"cod": "19", "nome": "Parafuso 5x30 Chato", "peso": 2.52, "amostra": 100},
-  {"cod": "20", "nome": "Parafuso 5x35 Chato", "peso": 2.84, "amostra": 100},
-  {"cod": "21", "nome": "Parafuso 5x40 Chato", "peso": 3.32, "amostra": 100},
-  {"cod": "22", "nome": "Parafuso 5x50 Chato", "peso": 4, "amostra": 100},
-  {"cod": "23", "nome": "Parafuso 5x60 Chato", "peso": 4.02, "amostra": 100},
-  {"cod": "24", "nome": "Parafuso 5x65 Chato", "peso": 4.42, "amostra": 50},
-  {"cod": "25", "nome": "Parafuso 5x70 Chato", "peso": 4.6, "amostra": 100},
-  {"cod": "26", "nome": "Parafuso 5,5x60 Chato", "peso": 7.27, "amostra": 100},
-  {"cod": "27", "nome": "Parafuso 5,5x70 Panela", "peso": null, "amostra": null},
-  {"cod": "29", "nome": "Parafuso 6x60 Chato", "peso": 6.5, "amostra": 100},
-  {"cod": "30", "nome": "Parafuso 6x70 Chato", "peso": 7.55, "amostra": 100},
-  {"cod": "31", "nome": "Parafuso 6x90 Chato", "peso": 9.01, "amostra": 100},
-  {"cod": "93", "nome": "Parafuso 4x50 Chato", "peso": null, "amostra": null},
-  {"cod": "28", "nome": "Parafuso 4x40 Chato", "peso": null, "amostra": null},
-  {"cod": "94", "nome": "Parafuso 4,5x50 Chato", "peso": null, "amostra": null},
-  {"cod": "48", "nome": "Bucha Fix D8", "peso": 1.08, "amostra": 100},
-  {"cod": "49", "nome": "Bucha Fix D10", "peso": null, "amostra": null},
-  {"cod": "50", "nome": "Bucha Fix D6", "peso": 0.55, "amostra": 100}
+  {"nome": "Parafuso 3x30 Flange", "peso": 1.22, "amostra": 100},
+  {"nome": "Parafuso 3,5x22 Chato", "peso": 1.12, "amostra": 100},
+  {"nome": "Parafuso 3,5x40 Chato", "peso": 1.55, "amostra": 100},
+  {"nome": "Parafuso 4x14 Panela", "peso": 1.13, "amostra": 100},
+  {"nome": "Parafuso 4x16 Chato", "peso": 1.14, "amostra": 100},
+  {"nome": "Parafuso 4x25 Chato", "peso": 1.3, "amostra": 100},
+  {"nome": "Parafuso 4x25 Panela", "peso": 1.66, "amostra": 100},
+  {"nome": "Parafuso 4x30 Chato", "peso": 1.34, "amostra": 100},
+  {"nome": "Parafuso 4x35 Chato", "peso": 1.7, "amostra": 100},
+  {"nome": "Parafuso 4x50 Chato Hafele", "peso": 3.18, "amostra": 100},
+  {"nome": "Parafuso 4x50 Panela", "peso": 2.7313, "amostra": 67},
+  {"nome": "Parafuso 4,2x13 Chato", "peso": 1.06, "amostra": 100},
+  {"nome": "Parafuso 4,5x20 Chato", "peso": 1.35, "amostra": 100},
+  {"nome": "Parafuso 4,5x40 Chato", "peso": 2.46, "amostra": 100},
+  {"nome": "Parafuso 4,5x45 Panela", "peso": 3.19, "amostra": 100},
+  {"nome": "Parafuso 4,5x60 Chato", "peso": 3.56, "amostra": 100},
+  {"nome": "Parafuso 4,8x25 Chato", "peso": 2.59, "amostra": 100},
+  {"nome": "Parafuso 5x25 Chato", "peso": 1.97, "amostra": 100},
+  {"nome": "Parafuso 5x30 Chato", "peso": 2.52, "amostra": 100},
+  {"nome": "Parafuso 5x35 Chato", "peso": 2.84, "amostra": 100},
+  {"nome": "Parafuso 5x40 Chato", "peso": 3.32, "amostra": 100},
+  {"nome": "Parafuso 5x50 Chato", "peso": 4, "amostra": 100},
+  {"nome": "Parafuso 5x60 Chato", "peso": 4.02, "amostra": 100},
+  {"nome": "Parafuso 5x65 Chato", "peso": 4.42, "amostra": 50},
+  {"nome": "Parafuso 5x70 Chato", "peso": 4.6, "amostra": 100},
+  {"nome": "Parafuso 5,5x60 Chato", "peso": 7.27, "amostra": 100},
+  {"nome": "Parafuso 5,5x70 Panela", "peso": null, "amostra": null},
+  {"nome": "Parafuso 6x60 Chato", "peso": 6.5, "amostra": 100},
+  {"nome": "Parafuso 6x70 Chato", "peso": 7.55, "amostra": 100},
+  {"nome": "Parafuso 6x90 Chato", "peso": 9.01, "amostra": 100},
+  {"nome": "Parafuso 4x50 Chato", "peso": null, "amostra": null},
+  {"nome": "Parafuso 4x40 Chato", "peso": null, "amostra": null},
+  {"nome": "Parafuso 4,5x50 Chato", "peso": null, "amostra": null},
+  {"nome": "Bucha Fix D8", "peso": 1.08, "amostra": 100},
+  {"nome": "Bucha Fix D10", "peso": null, "amostra": null},
+  {"nome": "Bucha Fix D6", "peso": 0.55, "amostra": 100}
 ];
 const QTDS_RAPIDAS = [50, 100, 200, 500, 1000, 2000];
 
@@ -1465,14 +1465,14 @@ function parafusos() {
 }
 const parafusoSel = () => parafusos().find(p => p.id === state.parafSel);
 
-// Cada palavra digitada precisa aparecer no nome (ou no código); quem começa com ela vem primeiro
+// Cada palavra digitada precisa aparecer no nome; quem começa com ela vem primeiro
 function filtrarParafusos() {
   const termos = normParaf(state.parafBusca).split(/\s+/).filter(Boolean);
   const todos = parafusos();
   if (!termos.length) return todos;
   const comeca = p => (termos.every(t => ` ${normParaf(p.nome)}`.includes(` ${t}`)) ? 0 : 1);
   return todos
-    .filter(p => termos.every(t => `${normParaf(p.nome)} ${p.cod ?? ''}`.includes(t)))
+    .filter(p => termos.every(t => normParaf(p.nome).includes(t)))
     .sort((a, b) => comeca(a) - comeca(b));
 }
 
@@ -1529,7 +1529,6 @@ function abaParafusos() {
   const semPeso = lista.filter(p => !p.peso).length;
   const linhas = lista.map(p => `
     <tr class="clicavel" data-action="editar-parafuso" data-id="${p.id}" title="Editar">
-      <td class="muted">${escapeHtml(p.cod || '-')}</td>
       <td>${escapeHtml(p.nome)}</td>
       <td class="num nowrap">${p.peso ? `${numero(p.peso, 3)} g` : '<span class="tag tag-amber">sem peso</span>'}</td>
       <td class="num muted">${p.amostra ? `${p.amostra} un` : '-'}</td>
@@ -1563,10 +1562,10 @@ function abaParafusos() {
           <button class="btn btn-ghost btn-sm" data-action="novo-parafuso">${icon('plus')} Novo item</button>
         </div>
         <div class="tabela-wrap"><table class="tabela tabela-paraf">
-          <thead><tr><th>Cód. Omie</th><th>Item</th><th class="num">1 peça</th><th class="num">Amostra</th></tr></thead>
+          <thead><tr><th>Item</th><th class="num">1 peça</th><th class="num">Amostra</th></tr></thead>
           <tbody>${linhas}</tbody>
         </table></div>
-        <p class="hint paraf-dica">Toque num item para corrigir o peso, o nome ou o código.</p>
+        <p class="hint paraf-dica">Toque num item para corrigir o peso ou o nome.</p>
       </div>
     </div>`;
 }
@@ -1623,7 +1622,6 @@ function abrirParafuso(id = '') {
   $('#parafuso-excluir').hidden = !p;
   openDialog('dlg-parafuso', {
     parafusoId: id,
-    cod: p?.cod ?? '',
     nome: p?.nome ?? '',
     amostra: p?.amostra ?? '',
     total: p?.peso && p?.amostra ? numero(Math.round(p.peso * p.amostra * 100) / 100, 2) : '',
@@ -3326,7 +3324,7 @@ const forms = {
       if (!(total > 0)) return fail('Digite o peso total (em gramas) que a balança marcou.');
       peso = Math.round((total / amostra) * 10000) / 10000;
     }
-    await Store.salvarParafuso(id, { cod: f.cod.value.trim(), nome, peso, amostra });
+    await Store.salvarParafuso(id, { nome, peso, amostra });
     toast(id ? 'Item atualizado.' : 'Item cadastrado.');
   },
 
