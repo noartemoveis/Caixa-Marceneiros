@@ -32,6 +32,11 @@ const ERROS = {
   'auth/too-many-requests': 'Muitas tentativas. Aguarde alguns minutos.',
   'auth/email-already-in-use': 'Esse e-mail já tem cadastro no sistema.',
   'auth/network-request-failed': 'Sem conexão com a internet.',
+  'auth/invalid-action-code': 'Esse link já foi usado ou venceu. Peça um link novo.',
+  'auth/expired-action-code': 'Esse link venceu. Peça um link novo.',
+  'auth/operation-not-allowed': 'A entrada sem senha ainda não foi ativada. Entre com a senha por enquanto.',
+  'auth/unauthorized-continue-uri': 'A entrada sem senha ainda não foi ativada. Entre com a senha por enquanto.',
+  'auth/quota-exceeded': 'Muitos links enviados hoje. Entre com a senha ou tente amanhã.',
   'permission-denied': 'Você não tem permissão para isso.',
   'unavailable': 'Sem conexão com a internet.',
 };
@@ -150,6 +155,8 @@ const ICONS = {
   eyeOff: '<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19M1 1l22 22"/>',
   edit: '<path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
+  camera: '<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>',
+  mail: '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 6-10 7L2 6"/>',
   minus: '<path d="M5 12h14"/>',
   cart: '<circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>',
   print: '<path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 14h12v8H6z"/>',
@@ -180,6 +187,7 @@ const icon = name =>
 const state = {
   screen: 'carregando', // carregando | config | login | admin | conta | pedidos | painel | ferramentas
   user: null,           // { role: 'admin' | 'marceneiro', uid, email }
+  loginModo: 'senha',   // senha | link (pede o e-mail) | link-enviado | link-confirmar (voltou pelo link em outro aparelho) | link-entrando
   marceneiros: [],
   lancamentos: [],
   pedidos: [],
@@ -332,6 +340,21 @@ function clientesDe(lancamentos) {
 const nomeDoCliente = (lancamentos, chave) =>
   clientesDe(lancamentos).find(([k]) => k === chave)?.[1] ?? chave;
 
+// Obras (ex.: "Cozinha"), do mesmo jeito que os clientes: [chave, nome para mostrar]
+function obrasDe(lancamentos) {
+  const nomes = new Map();
+  lancamentos.forEach(l => {
+    const chave = chaveCliente(l.obra);
+    if (!chave) return;
+    const nome = l.obra.trim();
+    if (!nomes.has(chave) || capricho(nome) > capricho(nomes.get(chave))) nomes.set(chave, nome);
+  });
+  return [...nomes].sort((a, b) => a[1].localeCompare(b[1], 'pt-BR'));
+}
+
+// "Cliente: Ana · Obra: Cozinha" (o que tiver)
+const clienteObra = l => [l.cliente && `Cliente: ${l.cliente}`, l.obra && `Obra: ${l.obra}`].filter(Boolean).join(' · ');
+
 // Lançamento entra no filtro? Com cliente escolhido, só os serviços dele
 const passaNoFiltro = ({ tipo, cliente }) => l =>
   cliente ? chaveCliente(l.cliente) === cliente : tipo === 'todos' || l.tipo === tipo;
@@ -461,6 +484,50 @@ function viewConfig() {
 
 function viewLogin() {
   const email = lerEmailLembrado();
+  const modo = state.loginModo;
+  const letra = `
+      <button class="link" data-action="letra" data-letra="${letraGrande() ? '' : 'grande'}">
+        ${letraGrande() ? 'Voltar a letra normal' : 'A+ Aumentar a letra'}</button>`;
+
+  if (modo === 'link-entrando') {
+    return `<section class="login">${brandBlock()}<p class="empty">Entrando…</p></section>`;
+  }
+  if (modo === 'link-enviado') {
+    return `
+    <section class="login">
+      ${brandBlock()}
+      <div class="login-aviso">
+        <span class="qa-icon tone-green">${icon('mail')}</span>
+        <strong>Pronto! Olhe o seu e-mail</strong>
+        <p>Mandamos um link para <b>${escapeHtml(state.loginEmailLink || '')}</b>.</p>
+        <p>Abra o e-mail <b>neste celular</b> e toque no link. O app abre e você já entra, sem senha.</p>
+        <p class="hint">Não chegou? Espere um minuto e olhe também na pasta de spam.</p>
+      </div>
+      <button class="link" data-action="login-link">Mandar o link de novo</button>
+      <button class="link" data-action="login-senha">Entrar com senha</button>
+      ${letra}
+    </section>`;
+  }
+  if (modo === 'link' || modo === 'link-confirmar') {
+    const confirmar = modo === 'link-confirmar';
+    return `
+    <section class="login">
+      ${brandBlock()}
+      <form class="login-form" data-form="${confirmar ? 'confirmarLink' : 'loginLink'}">
+        <p class="login-explica">${confirmar
+          ? 'Para terminar de entrar, digite o mesmo e-mail que recebeu o link.'
+          : 'Digite seu e-mail. Vamos mandar um link: é só tocar nele para entrar, sem senha.'}</p>
+        <label class="field">
+          <span>E-mail</span>
+          <input name="email" type="email" required autocomplete="username" autocapitalize="none" spellcheck="false"
+            placeholder="seu@email.com" value="${escapeHtml(email)}" autofocus>
+        </label>
+        <button class="btn btn-primary btn-block">${confirmar ? 'Entrar' : 'Mandar o link'}</button>
+      </form>
+      <button class="link" data-action="login-senha">Entrar com senha</button>
+      ${letra}
+    </section>`;
+  }
   return `
     <section class="login">
       ${brandBlock()}
@@ -479,6 +546,7 @@ function viewLogin() {
         </label>
         <button class="btn btn-primary btn-block">Entrar</button>
       </form>
+      <button class="btn btn-ghost btn-block login-sem-senha" data-action="login-link">${icon('mail')} Entrar sem senha (link no e-mail)</button>
       <button class="link" data-action="esqueci-senha">Esqueci minha senha</button>
       <button class="link" data-action="letra" data-letra="${letraGrande() ? '' : 'grande'}">
         ${letraGrande() ? 'Voltar a letra normal' : 'A+ Aumentar a letra'}</button>
@@ -819,11 +887,32 @@ function viewPainel() {
   const totalDe = campo => contas.reduce((s, c) => s + c[campo], 0);
 
   const servicos = movimento.filter(l => l.tipo === 'credito');
+  const quemFez = lista => [...new Set(lista.map(l => marceneiroDe(l.marcId)?.nome).filter(Boolean))];
   const clientes = clientesDe(servicos).map(([chave, nome]) => {
     const doCliente = servicos.filter(l => chaveCliente(l.cliente) === chave);
-    const quem = [...new Set(doCliente.map(l => marceneiroDe(l.marcId)?.nome).filter(Boolean))];
-    return { nome, total: doCliente.reduce((s, l) => s + l.valor, 0), quantidade: doCliente.length, quem };
+    return { chave, nome, total: doCliente.reduce((s, l) => s + l.valor, 0), quantidade: doCliente.length, quem: quemFez(doCliente) };
   }).sort((a, b) => b.total - a.total);
+
+  // Cada obra é do seu cliente ("Cozinha" da Ana é diferente de "Cozinha" do João)
+  const obras = new Map();
+  servicos.filter(l => chaveCliente(l.obra)).forEach(l => {
+    const chave = `${chaveCliente(l.cliente)}|${chaveCliente(l.obra)}`;
+    const o = obras.get(chave) ?? { chave, nome: l.obra.trim(), cliente: (l.cliente || '').trim(), lista: [] };
+    o.lista.push(l);
+    obras.set(chave, o);
+  });
+  const linhasObras = [...obras.values()]
+    .map(o => ({ ...o, total: o.lista.reduce((s, l) => s + l.valor, 0) }))
+    .sort((a, b) => b.total - a.total)
+    .map(o => `
+    <button class="painel-linha" data-action="ver-obra" data-obra="${escapeHtml(o.chave)}">
+      <span class="avatar sm avatar-icone">${icon('tool')}</span>
+      <span class="painel-info">
+        <strong class="truncate">${escapeHtml(o.nome)}${o.cliente ? ` <span class="muted">· ${escapeHtml(o.cliente)}</span>` : ''}</strong>
+        <small class="truncate">${o.lista.length} serviço(s) · ${escapeHtml(quemFez(o.lista).join(', '))}</small>
+      </span>
+      <span class="painel-valor pos">${formatMoney(o.total)}</span>
+    </button>`).join('');
 
   const aprovados = state.pedidos.filter(p => {
     if (p.status !== 'aprovado') return false;
@@ -842,14 +931,14 @@ function viewPainel() {
     </button>`).join('');
 
   const linhasClientes = clientes.map(c => `
-    <div class="painel-linha">
+    <button class="painel-linha" data-action="ver-cliente-painel" data-cliente="${escapeHtml(c.chave)}">
       <span class="avatar sm">${escapeHtml(initials(c.nome))}</span>
       <span class="painel-info">
         <strong class="truncate">${escapeHtml(c.nome)}</strong>
         <small class="truncate">${c.quantidade} serviço(s) · ${escapeHtml(c.quem.join(', '))}</small>
       </span>
       <span class="painel-valor pos">${formatMoney(c.total)}</span>
-    </div>`).join('');
+    </button>`).join('');
 
   return `
     <div class="conta">
@@ -882,6 +971,10 @@ function viewPainel() {
 
       <div class="section-head"><h2>Por cliente</h2></div>
       <div class="painel-lista">${linhasClientes || '<p class="empty">Nenhum serviço com cliente neste período.</p>'}</div>
+
+      <div class="section-head"><h2>Por obra</h2></div>
+      <div class="painel-lista">${linhasObras || '<p class="empty">Nenhum serviço com obra neste período. Preencha a obra ao lançar o serviço.</p>'}</div>
+      <p class="hint painel-nota">Toque num cliente ou numa obra para ver quanto foi de mão de obra, de quem e cada serviço.</p>
     </div>`;
 }
 
@@ -1895,7 +1988,7 @@ function extratoConteudo(m) {
 
 // Texto em que a busca procura: descrição, cliente e valor ("600" acha "R$ 600,00")
 const textoDeBusca = l =>
-  semAcento(`${l.desc} ${l.cliente || ''} ${formatMoney(l.valor)} ${l.valor.toFixed(2).replace('.', ',')}`);
+  semAcento(`${l.desc} ${l.cliente || ''} ${l.obra || ''} ${formatMoney(l.valor)} ${l.valor.toFixed(2).replace('.', ',')}`);
 
 // Bloco recolhível: a seta esconde a lista para o extrato aparecer logo
 function agendadosHtml(futuros) {
@@ -1942,7 +2035,7 @@ function extratoHtml(todos, lancamentos, tipo) {
 
 function lancamentoHtml(l) {
   const credito = l.tipo === 'credito';
-  let detalhe = credito ? (l.cliente ? `Cliente: ${l.cliente}` : 'Serviço') : 'Retirada';
+  let detalhe = credito ? (clienteObra(l) || 'Serviço') : 'Retirada';
   if (l.data > today()) detalhe = `${credito ? 'Libera' : 'Desconta'} em ${formatDate(l.data)}`;
   if (l.estornoDe) detalhe = 'Estorno';
   if (l.estornado) detalhe = `Estornado em ${formatMomento(l.estornadoEm)}`;
@@ -1952,7 +2045,7 @@ function lancamentoHtml(l) {
       <span class="tx-icon ${credito ? 'in' : 'out'}">${icon(credito ? 'arrowUp' : 'arrowDown')}</span>
       <span class="tx-info">
         <strong>${escapeHtml(l.desc)}</strong>
-        <small>${escapeHtml(detalhe)}</small>
+        <small>${escapeHtml(detalhe)}${l.temFoto ? ` <span class="tx-foto" title="Tem foto do comprovante">${icon('camera')}</span>` : ''}</small>
       </span>
       <span class="tx-value ${credito ? 'pos' : 'neg'}">${credito ? '+' : '−'} ${formatMoney(l.valor)}</span>
     </button>`;
@@ -2081,10 +2174,12 @@ function aoMudarLogin(user) {
   state.carregados.clear();
 
   if (!user) {
+    if (state.loginModo === 'link-entrando') return; // está entrando pelo link: espera o login chegar
     go('login');
     return;
   }
 
+  state.loginModo = 'senha'; // da próxima vez, a tela de entrada volta ao normal
   lembrarEmail(user.email);
   const erro = err => {
     console.error(err);
@@ -2127,7 +2222,8 @@ function openDialog(id, valores = {}) {
     form.reset();
     form.querySelectorAll('input[type="date"]').forEach(input => { input.value = today(); });
     Object.entries(valores).forEach(([name, value]) => { form.elements[name].value = value; });
-    form.querySelectorAll('[data-sugestoes-cliente]').forEach(caixa => { caixa.innerHTML = ''; });
+    form.querySelectorAll('[data-sugestoes-cliente], [data-sugestoes-obra]').forEach(caixa => { caixa.innerHTML = ''; });
+    limparFotos(form);
   }
   if (id === 'dlg-parcelado') updateParceladoPreview();
   if (id === 'dlg-servico') atualizarAgendaServico(form);
@@ -2177,7 +2273,7 @@ function atualizarAgendaServico(form) {
 
 // Como era antes de cada edição, para o comprovante
 const resumoVersao = v =>
-  [formatMoney(v.valor), v.desc, v.cliente && `Cliente: ${v.cliente}`, formatDate(v.data)].filter(Boolean).join(' · ');
+  [formatMoney(v.valor), v.desc, v.cliente && `Cliente: ${v.cliente}`, v.obra && `Obra: ${v.obra}`, formatDate(v.data)].filter(Boolean).join(' · ');
 
 function openLancamento(id) {
   const m = contaAtual();
@@ -2196,6 +2292,18 @@ function openLancamento(id) {
 
   // Estornado e o próprio estorno não mudam mais; agendado se cancela em vez de estornar
   const podeMexer = isAdmin() && !l.estornado && !l.estornoDe;
+
+  // Foto do comprovante: todos veem; só o administrador anexa, troca ou tira
+  const botoesFoto = isAdmin() && !l.estornoDe ? `
+      <div class="foto-botoes">
+        <label class="btn btn-ghost btn-sm">
+          <input type="file" accept="image/*" data-anexar-foto="${l.id}" hidden>${icon('camera')} ${l.temFoto ? 'Trocar a foto' : 'Anexar foto do comprovante'}
+        </label>
+        ${l.temFoto ? `<button class="btn btn-link-danger btn-sm" data-action="remover-foto" data-id="${l.id}">Tirar a foto</button>` : ''}
+      </div>` : '';
+  const fotoHtml = `
+    ${l.temFoto ? `<div class="comprovante-foto" id="comprovante-foto" data-id="${l.id}"><p class="hint">Carregando a foto…</p></div>` : ''}
+    ${botoesFoto}`;
   const botoes = podeMexer ? `
     <div class="sheet-actions">
       <button class="btn btn-ghost" data-action="editar-lancamento" data-id="${l.id}">${icon('edit')} Editar</button>
@@ -2212,24 +2320,29 @@ function openLancamento(id) {
       ['Lançado em', formatMomento(l.criadoEm)],
       ['Descrição', l.desc],
       ...(l.cliente ? [['Cliente', l.cliente]] : []),
+      ...(l.obra ? [['Obra', l.obra]] : []),
       ['Conta', m.nome],
       ...situacao,
     ])}
+    ${fotoHtml}
     ${historico ? `<ul class="historico">${historico}</ul>` : ''}
     ${botoes}`;
 
   $('#dlg-lancamento').showModal();
+  if (l.temFoto) mostrarFotoDoLancamento(l.id);
 }
 
 function openEditarLancamento(id) {
   const l = state.lancamentos.find(x => x.id === id);
   $('#dlg-lancamento').close();
   $('#editar-lanc-cliente').hidden = l.tipo !== 'credito';
+  $('#editar-lanc-obra').hidden = l.tipo !== 'credito';
   openDialog('dlg-editar-lancamento', {
     lancId: l.id,
     valor: maskMoneyInput(String(Math.round(l.valor * 100))),
     desc: l.desc,
     cliente: l.cliente || '',
+    obra: l.obra || '',
     data: l.data,
   });
 }
@@ -2241,6 +2354,160 @@ function updateParceladoPreview() {
   $('#parcelado-preview').textContent = total > 0 && parcelas > 0
     ? `${parcelas}x de ${formatMoney(total / parcelas)}`
     : '';
+}
+
+// ================= MÃO DE OBRA POR CLIENTE E POR OBRA =================
+// No painel geral, tocar num cliente ou numa obra mostra quanto foi pago, para quem e cada serviço
+
+function servicosDoPainel() {
+  const { inicio, fim } = state.painel;
+  const hoje = today();
+  return state.lancamentos.filter(l => l.tipo === 'credito' && !l.cancelado && !l.estornado && !l.estornoDe && l.data <= hoje
+    && (!inicio || l.data >= inicio) && (!fim || l.data <= fim));
+}
+
+function abrirMaoDeObra({ cliente = null, obra = null }) {
+  let lista = servicosDoPainel();
+  let titulo;
+  let subtitulo;
+  if (obra) {
+    const [chaveCli, chaveObra] = obra.split('|');
+    lista = lista.filter(l => chaveCliente(l.cliente) === chaveCli && chaveCliente(l.obra) === chaveObra);
+    if (!lista.length) return;
+    titulo = `Obra: ${obrasDe(lista)[0][1]}`;
+    subtitulo = chaveCli ? `Cliente: ${nomeDoCliente(lista, chaveCli)}` : 'Sem cliente informado';
+  } else {
+    lista = lista.filter(l => chaveCliente(l.cliente) === cliente);
+    if (!lista.length) return;
+    titulo = `Cliente: ${nomeDoCliente(lista, cliente)}`;
+    subtitulo = 'Mão de obra de todas as obras deste cliente';
+  }
+  lista.sort((a, b) => b.data.localeCompare(a.data));
+  const total = lista.reduce((s, l) => s + l.valor, 0);
+
+  const somarPor = chave => {
+    const grupos = new Map();
+    lista.forEach(l => {
+      const k = chave(l);
+      grupos.set(k, (grupos.get(k) ?? 0) + l.valor);
+    });
+    return [...grupos].sort((a, b) => b[1] - a[1]);
+  };
+  const porMarceneiro = somarPor(l => marceneiroDe(l.marcId)?.nome ?? '(conta excluída)');
+  const porObra = obra ? [] : somarPor(l => (l.obra || '').trim() || 'Sem obra informada');
+  const linhas = pares => detalhesHtml(pares.map(([nome, valor]) => [escapeHtml(nome), formatMoney(valor)]));
+
+  $('#obra-titulo').textContent = titulo;
+  $('#obra-subtitulo').textContent = subtitulo;
+  $('#obra-body').innerHTML = `
+    <div class="detail-amount pos">${formatMoney(total)}</div>
+    <p class="detail-type">${lista.length} serviço(s) · ${escapeHtml(rotuloPeriodo(state.painel))}</p>
+    <h4 class="obra-secao">Por marceneiro</h4>
+    ${linhas(porMarceneiro)}
+    ${porObra.length > 1 || (porObra.length === 1 && porObra[0][0] !== 'Sem obra informada') ? `<h4 class="obra-secao">Por obra</h4>${linhas(porObra)}` : ''}
+    <h4 class="obra-secao">Serviços</h4>
+    <ul class="obra-servicos">
+      ${lista.map(l => `
+        <li>
+          <span><strong>${escapeHtml(l.desc)}</strong>
+            <small>${formatDate(l.data)} · ${escapeHtml(marceneiroDe(l.marcId)?.nome ?? '(conta excluída)')}${!obra && l.obra ? ` · ${escapeHtml(l.obra)}` : ''}</small></span>
+          <b class="pos">${formatMoney(l.valor)}</b>
+        </li>`).join('')}
+    </ul>
+    <p class="hint">Estornos e agendamentos ainda não liberados não entram na conta. Para ver outro período, troque as datas no painel.</p>`;
+  $('#dlg-obra').showModal();
+}
+
+function sugerirObras(campo) {
+  const caixa = campo.parentElement.querySelector('[data-sugestoes-obra]');
+  const cliente = chaveCliente(campo.form?.elements.cliente?.value);
+  const termo = semAcento(campo.value);
+  // Sem nada digitado, mostra as obras que esse cliente já tem
+  const nomes = termo || cliente
+    ? obrasDe(state.lancamentos.filter(l => !cliente || chaveCliente(l.cliente) === cliente))
+      .map(([, nome]) => nome)
+      .filter(nome => semAcento(nome).includes(termo) && semAcento(nome) !== termo)
+      .slice(0, 5)
+    : [];
+  caixa.innerHTML = nomes.map(nome =>
+    `<button type="button" class="sugestao" data-action="usar-obra" data-nome="${escapeHtml(nome)}">${icon('tool')} ${escapeHtml(nome)}</button>`).join('');
+}
+
+// ================= FOTO DO COMPROVANTE =================
+// A foto é diminuída no próprio celular (fica com uns 100 a 300 KB) antes de ir para o banco.
+
+async function comprimirFoto(arquivo) {
+  const url = URL.createObjectURL(arquivo);
+  try {
+    const img = await new Promise((ok, erro) => {
+      const i = new Image();
+      i.onload = () => ok(i);
+      i.onerror = () => erro(new Error('Não deu para abrir essa foto. Tente outra.'));
+      i.src = url;
+    });
+    for (const [lado, qualidade] of [[1600, 0.72], [1280, 0.65], [1000, 0.6], [800, 0.55]]) {
+      const escala = Math.min(1, lado / Math.max(img.naturalWidth, img.naturalHeight));
+      const tela = document.createElement('canvas');
+      tela.width = Math.round(img.naturalWidth * escala);
+      tela.height = Math.round(img.naturalHeight * escala);
+      tela.getContext('2d').drawImage(img, 0, 0, tela.width, tela.height);
+      const dados = tela.toDataURL('image/jpeg', qualidade);
+      if (dados.length <= 700000) return dados;
+    }
+    throw new Error('A foto ficou grande demais. Tente outra.');
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+// Ao escolher a foto num formulário: já diminui e mostra uma prévia
+function prepararFoto(campo) {
+  const caixa = campo.closest('.campo-foto');
+  const previa = caixa.querySelector('[data-foto-previa]');
+  const rotulo = caixa.querySelector('[data-foto-rotulo]');
+  const arquivo = campo.files?.[0];
+  campo.fotoPronta = null;
+  if (!arquivo) {
+    previa.hidden = true;
+    rotulo.textContent = 'Tirar foto ou escolher';
+    return;
+  }
+  rotulo.textContent = 'Preparando a foto…';
+  campo.fotoPronta = comprimirFoto(arquivo);
+  campo.fotoPronta.then(dados => {
+    previa.src = dados;
+    previa.hidden = false;
+    rotulo.textContent = 'Trocar a foto';
+  }).catch(err => {
+    campo.value = '';
+    campo.fotoPronta = null;
+    previa.hidden = true;
+    rotulo.textContent = 'Tirar foto ou escolher';
+    fail(err.message);
+  });
+}
+
+const fotoDoFormulario = campo => (campo?.fotoPronta ? campo.fotoPronta : Promise.resolve(null));
+
+function limparFotos(form) {
+  form.querySelectorAll('[data-foto]').forEach(campo => { campo.fotoPronta = null; });
+  form.querySelectorAll('[data-foto-previa]').forEach(img => { img.hidden = true; img.removeAttribute('src'); });
+  form.querySelectorAll('[data-foto-rotulo]').forEach(r => { r.textContent = 'Tirar foto ou escolher'; });
+}
+
+// No comprovante: busca a foto só quando abre (se for do mesmo lançamento que ainda está aberto)
+async function mostrarFotoDoLancamento(id) {
+  const caixa = $('#comprovante-foto');
+  try {
+    const foto = await Store.buscarFoto(id);
+    if (caixa.dataset.id !== id) return;
+    caixa.innerHTML = foto
+      ? `<img src="${foto}" alt="Foto do comprovante" data-action="ampliar-foto" title="Tocar para aumentar">`
+      : '<p class="hint">A foto não foi encontrada.</p>';
+  } catch (err) {
+    console.error(err);
+    if (caixa.dataset.id === id) caixa.innerHTML = '<p class="hint">Não deu para carregar a foto. Confira a internet e abra de novo.</p>';
+  }
 }
 
 // ================= ESCOLHA DE CLIENTE =================
@@ -2407,7 +2674,7 @@ function confirmarPeriodo() {
 const TITULO_PDF = { todos: 'Extrato de conta', credito: 'Relatório de entradas', debito: 'Relatório de saídas' };
 
 const descricaoPdf = (l, extra = []) => {
-  const detalhes = [l.cliente && `Cliente: ${l.cliente}`, l.estornado && 'Estornado', ...extra].filter(Boolean);
+  const detalhes = [l.cliente && `Cliente: ${l.cliente}`, l.obra && `Obra: ${l.obra}`, l.estornado && 'Estornado', ...extra].filter(Boolean);
   return escapeHtml(l.desc) + detalhes.map(d => `<small>${escapeHtml(d)}</small>`).join('');
 };
 
@@ -2570,6 +2837,7 @@ async function baixarBackup() {
     Tipo: l.tipo === 'credito' ? 'Entrada' : 'Saída',
     Descrição: l.desc,
     Cliente: l.cliente || '',
+    Obra: l.obra || '',
     Entrada: l.tipo === 'credito' ? l.valor : null,
     Saída: l.tipo === 'debito' ? l.valor : null,
     Situação: situacaoLancamento(l),
@@ -2665,6 +2933,7 @@ function abrirResposta(id, aprovar) {
   $('#responder-titulo').textContent = aprovar ? 'Aprovar retirada' : 'Recusar pedido';
   $('#responder-resumo').textContent = `${m.nome} pediu ${formatMoney(p.valor)}${p.motivo ? ` · ${p.motivo}` : ''}`;
   $('#responder-valor-campo').hidden = !aprovar;
+  $('#responder-foto-campo').hidden = !aprovar;
   form.elements.valor.disabled = !aprovar; // desativado, o navegador não exige o valor na recusa
   $('#responder-disponivel').textContent = `Disponível na conta: ${formatMoney(limite)}. Dá para aprovar um valor menor que o pedido.`;
   $('#responder-msg-rotulo').textContent = aprovar ? 'Recado para o marceneiro (opcional)' : 'Motivo da recusa (opcional)';
@@ -3024,6 +3293,35 @@ const actions = {
     campo.value = el.dataset.nome;
     el.parentElement.innerHTML = '';
   },
+  'usar-obra': el => {
+    const campo = el.closest('.field').querySelector('input[name="obra"]');
+    campo.value = el.dataset.nome;
+    el.parentElement.innerHTML = '';
+  },
+  'ver-obra': el => abrirMaoDeObra({ obra: el.dataset.obra }),
+  'ver-cliente-painel': el => abrirMaoDeObra({ cliente: el.dataset.cliente }),
+  'ampliar-foto': el => el.classList.toggle('grande'),
+  'remover-foto': async el => {
+    const l = state.lancamentos.find(x => x.id === el.dataset.id);
+    if (!l || !exigeInternet()) return;
+    if (!await confirmar({ titulo: 'Tirar a foto?', corpo: 'A foto do comprovante sai deste lançamento. O lançamento continua igual.', botao: 'Tirar a foto', tom: 'red' })) return;
+    try {
+      await Store.removerFoto(l);
+      toast('Foto retirada.');
+      openLancamento(l.id);
+    } catch (err) {
+      fail(mensagemErro(err));
+    }
+  },
+  'login-link': () => {
+    state.loginEmailLink = '';
+    state.loginModo = 'link';
+    render();
+  },
+  'login-senha': () => {
+    state.loginModo = 'senha';
+    render();
+  },
   'escolher-cliente': el => {
     $('#dlg-cliente').close();
     state.filtro = { ...state.filtro, cliente: el.dataset.cliente };
@@ -3192,7 +3490,7 @@ const forms = {
       if (valor > p.valor + CENTAVO) return fail(`O valor aprovado não pode passar do pedido (${formatMoney(p.valor)}).`);
       const limite = limiteRetirada(lancamentosDe(m.id), today());
       if (valor > limite + CENTAVO) return fail(`Saldo insuficiente. Disponível: ${formatMoney(limite)}.`);
-      await Store.aprovarPedido(p, m, today(), { valor, resposta });
+      await Store.aprovarPedido(p, m, today(), { valor, resposta, foto: await fotoDoFormulario(f.foto) });
       toast('Pedido aprovado e lançado no extrato.');
     } else {
       await Store.recusarPedido(p, resposta);
@@ -3203,6 +3501,21 @@ const forms = {
 
   async login(f) {
     await Store.login(f.email.value, f.senha.value);
+  },
+
+  // Entrar sem senha: manda o link para o e-mail
+  async loginLink(f) {
+    const email = f.email.value.trim();
+    await Store.enviarLinkDeEntrada(email);
+    lembrarEmail(email);
+    state.loginEmailLink = email;
+    state.loginModo = 'link-enviado';
+    render();
+  },
+
+  // Voltou pelo link num aparelho que não sabe o e-mail: pede para confirmar
+  async confirmarLink(f) {
+    await Store.entrarPeloLink(f.email.value.trim());
   },
 
   async marceneiro(f) {
@@ -3223,7 +3536,8 @@ const forms = {
     const data = agendado ? f.data.value : today();
     if (agendado && data <= today()) return fail('Para agendar, escolha uma data a partir de amanhã.');
     const desc = f.desc.value.trim();
-    await Store.addLancamento(contaAtual(), { tipo: 'credito', data, desc, cliente: f.cliente.value.trim(), valor });
+    await Store.addLancamento(contaAtual(), { tipo: 'credito', data, desc, cliente: f.cliente.value.trim(), obra: f.obra.value.trim(), valor },
+      await fotoDoFormulario(f.foto));
     toast(agendado ? `Serviço agendado: o valor libera em ${formatDate(data)}.` : 'Serviço lançado!');
     avisarMarceneiro(contaAtual(), agendado ? 'Serviço agendado' : 'Novo serviço lançado',
       `${desc} · + ${formatMoney(valor)}${agendado ? ` (libera em ${formatDate(data)})` : ''}`);
@@ -3238,9 +3552,11 @@ const forms = {
       valor,
       desc: f.desc.value.trim(),
       cliente: l.tipo === 'credito' ? f.cliente.value.trim() : '',
+      obra: l.tipo === 'credito' ? f.obra.value.trim() : '',
       data: f.data.value,
     };
-    const mudou = novo.valor !== l.valor || novo.desc !== l.desc || novo.cliente !== (l.cliente || '') || novo.data !== l.data;
+    const mudou = novo.valor !== l.valor || novo.desc !== l.desc || novo.cliente !== (l.cliente || '')
+      || novo.obra !== (l.obra || '') || novo.data !== l.data;
     if (!mudou) return; // nada a salvar: só fecha a janela
     if (ficariaNegativoTrocando(lancamentosDe(l.marcId), l, { ...l, ...novo })) {
       return fail('Com essa alteração o saldo ficaria negativo.');
@@ -3258,7 +3574,7 @@ const forms = {
     }
     const obs = f.obs.value.trim();
     const desc = obs ? `${f.forma.value} - ${obs}` : f.forma.value;
-    await Store.addLancamento(contaAtual(), { tipo: 'debito', data: f.data.value, desc, valor });
+    await Store.addLancamento(contaAtual(), { tipo: 'debito', data: f.data.value, desc, valor }, await fotoDoFormulario(f.foto));
     toast('Retirada registrada!');
     avisarMarceneiro(contaAtual(), 'Retirada registrada', `${desc} · − ${formatMoney(valor)}`);
   },
@@ -3443,6 +3759,7 @@ document.addEventListener('input', e => {
   if (e.target.form?.id === 'form-parcelado') updateParceladoPreview();
   if (e.target.matches('[data-busca-cliente]')) renderListaClientes(e.target.value);
   if (e.target.name === 'cliente' && e.target.form) sugerirClientes(e.target);
+  if (e.target.name === 'obra' && e.target.form) sugerirObras(e.target);
   if (e.target.matches('[data-busca-extrato]')) {
     state.busca = e.target.value;
     $('#extrato-conteudo').innerHTML = extratoConteudo(contaAtual());
@@ -3469,6 +3786,7 @@ document.addEventListener('input', e => {
 
 // Lista de parafusos: abre ao tocar no campo, fecha ao sair; setas e Enter também escolhem
 document.addEventListener('focusin', e => {
+  if (e.target.name === 'obra' && e.target.form && !e.target.value) sugerirObras(e.target);
   if (e.target.matches('[data-paraf-busca]')) {
     e.target.select();
     mostrarListaParafusos();
@@ -3510,6 +3828,8 @@ document.addEventListener('keydown', e => {
 
 document.addEventListener('change', e => {
   if (e.target.name === 'liberacao') atualizarAgendaServico(e.target.form);
+  if (e.target.matches('[data-foto]')) prepararFoto(e.target);
+  if (e.target.matches('[data-anexar-foto]')) anexarFotoAoLancamento(e.target);
   // Formulário de movimentação de ferramentas: a ferramenta escolhida entra na lista; o marceneiro só fica guardado
   if (e.target.matches('select[data-mov]')) {
     const campo = e.target.dataset.mov;
@@ -3533,12 +3853,53 @@ function atualizarAvisoOffline() {
 window.addEventListener('online', atualizarAvisoOffline);
 window.addEventListener('offline', atualizarAvisoOffline);
 
+// Abriu o app tocando no link do e-mail: entra direto (ou pede o e-mail, se abriu em outro aparelho)
+async function entrarPeloLinkDoEmail() {
+  const email = Store.emailDoLink() || lerEmailLembrado();
+  if (!email) {
+    state.loginModo = 'link-confirmar';
+    render();
+    return;
+  }
+  state.loginModo = 'link-entrando';
+  try {
+    await Store.entrarPeloLink(email);
+  } catch (err) {
+    console.error(err);
+    // E-mail guardado diferente do link: pede para digitar
+    state.loginModo = err?.code === 'auth/invalid-email' ? 'link-confirmar' : 'link';
+    go('login');
+    if (err?.code !== 'auth/invalid-email') fail(mensagemErro(err));
+  }
+}
+
+// Anexar ou trocar a foto direto no comprovante
+async function anexarFotoAoLancamento(campo) {
+  const l = state.lancamentos.find(x => x.id === campo.dataset.anexarFoto);
+  const arquivo = campo.files?.[0];
+  if (!l || !arquivo || !exigeInternet()) return;
+  const rotulo = campo.parentElement;
+  rotulo.classList.add('carregando');
+  try {
+    const foto = await comprimirFoto(arquivo);
+    await Store.anexarFoto(l, marceneiroDe(l.marcId), foto);
+    toast('Foto do comprovante salva.');
+    openLancamento(l.id);
+  } catch (err) {
+    console.error(err);
+    fail(err.code ? mensagemErro(err) : err.message);
+  } finally {
+    rotulo.classList.remove('carregando');
+  }
+}
+
 // ================= INÍCIO =================
 
 atualizarAvisoOffline();
 
 if (Store.configurado) {
   render(); // "Carregando…" até o Firebase dizer se já tem alguém logado
+  if (Store.chegouPeloLink()) entrarPeloLinkDoEmail();
   Store.onAuthChange(aoMudarLogin);
 } else {
   go('config');

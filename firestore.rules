@@ -69,6 +69,13 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
+    // Foto do comprovante de um lançamento (o código é o mesmo do lançamento):
+    // o marceneiro só vê as dele; só o administrador anexa ou tira
+    match /comprovantes/{id} {
+      allow read: if isAdmin() || isDono();
+      allow write: if isAdmin();
+    }
+
     // Confirmação do mês: o marceneiro só cria a dele, uma vez (sem mudar nem apagar depois)
     match /fechamentos/{id} {
       allow read: if isAdmin() || isDono();

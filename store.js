@@ -1,14 +1,15 @@
 /* =========================================================
    Store — camada de dados (Firebase)
-   Login: Firebase Authentication (e-mail e senha).
+   Login: Firebase Authentication (e-mail e senha, ou link de entrada mandado por e-mail).
    Dados: Cloud Firestore. Avisos por e-mail e notificação: Google Apps Script.
    A interface (app.js) só conversa com as funções exportadas aqui.
 
    Coleções no Firestore:
      marceneiros/{id}  → { nome, email, uid, criadoEm }
-     lancamentos/{id}  → { marcId, uid, tipo, data, desc, cliente, valor, criadoEm,
+     lancamentos/{id}  → { marcId, uid, tipo, data, desc, cliente, obra, valor, criadoEm, temFoto?,
                            estornado?, estornadoEm?, estornoDe?, cancelado?, canceladoEm?, alteracoes? }
      pedidos/{id}      → { marcId, uid, valor, motivo, status, criadoEm, respondidoEm, valorAprovado?, resposta? }
+     comprovantes/{id do lançamento} → { marcId, uid, foto, criadoEm }  (foto do comprovante, em JPEG pequeno)
      fechamentos/{conta_mês} → { marcId, uid, mes, entradas, saidas, saldoFinal, confirmadoEm }  ("Estou de acordo")
      dispositivos/{código do aparelho} → { uid, papel, atualizadoEm }  (quem recebe notificações)
    O campo "uid" liga cada registro ao login do marceneiro (usado nas regras de segurança).
@@ -29,10 +30,11 @@ import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/fireba
 import {
   getAuth, initializeAuth, inMemoryPersistence, onAuthStateChanged,
   signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, sendPasswordResetEmail,
+  sendSignInLinkToEmail, isSignInWithEmailLink, signInWithEmailLink,
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import {
   getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
-  collection, doc, query, where, onSnapshot, getDocs,
+  collection, doc, query, where, onSnapshot, getDoc, getDocs,
   addDoc, setDoc, updateDoc, deleteDoc, deleteField, writeBatch, runTransaction, serverTimestamp, arrayUnion,
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 import { getMessaging, getToken, isSupported } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging.js';
@@ -125,6 +127,29 @@ export const login = (email, senha) => signInWithEmailAndPassword(auth, normaliz
 export const logout = () => signOut(auth);
 export const enviarEmailSenha = email => sendPasswordResetEmail(auth, normalizarEmail(email));
 
+// Entrar sem senha: manda um link por e-mail; tocar nele abre o app já com a pessoa conectada.
+// O e-mail fica guardado no aparelho para não precisar digitar de novo ao voltar pelo link.
+const CHAVE_EMAIL_LINK = 'caixa_email_link';
+const guardarEmailLink = email => { try { localStorage.setItem(CHAVE_EMAIL_LINK, email); } catch { /* sem armazenamento */ } };
+
+export async function enviarLinkDeEntrada(email) {
+  const e = normalizarEmail(email);
+  await sendSignInLinkToEmail(auth, e, { url: location.origin + location.pathname, handleCodeInApp: true });
+  guardarEmailLink(e);
+}
+
+export const chegouPeloLink = () => Boolean(auth) && isSignInWithEmailLink(auth, location.href);
+
+export function emailDoLink() {
+  try { return localStorage.getItem(CHAVE_EMAIL_LINK) || ''; } catch { return ''; }
+}
+
+export async function entrarPeloLink(email) {
+  await signInWithEmailLink(auth, normalizarEmail(email), location.href);
+  try { localStorage.removeItem(CHAVE_EMAIL_LINK); } catch { /* sem armazenamento */ }
+  history.replaceState(null, '', location.pathname + location.hash); // tira o código do link do endereço
+}
+
 // ---------- Leitura ----------
 
 export const watchMarceneiros = (user, cb, onError) => escutar('marceneiros', user, cb, onError);
@@ -149,7 +174,7 @@ export async function addMarceneiro({ nome, email }) {
 export const updateMarceneiro = (id, { nome }) => updateDoc(doc(db, 'marceneiros', id), { nome });
 
 export async function removeMarceneiro({ id, uid }) {
-  for (const colecao of ['lancamentos', 'pedidos', 'fechamentos']) {
+  for (const colecao of ['lancamentos', 'comprovantes', 'pedidos', 'fechamentos']) {
     await emLotes(await docsDoMarceneiro(colecao, id), (batch, d) => batch.delete(d.ref));
   }
   // Aparelhos dele deixam de receber notificações
@@ -161,18 +186,45 @@ export async function removeMarceneiro({ id, uid }) {
 // ---------- Lançamentos (só admin) ----------
 // tipo: 'credito' (serviço) ou 'debito' (retirada)
 
-function dadosLancamento(marceneiro, { tipo, data, desc, cliente = '', valor }) {
+function dadosLancamento(marceneiro, { tipo, data, desc, cliente = '', obra = '', valor }) {
   return {
     marcId: marceneiro.id,
     uid: marceneiro.uid,
-    tipo, data, desc, cliente,
+    tipo, data, desc, cliente, obra,
     valor: roundCents(valor),
     criadoEm: serverTimestamp(),
   };
 }
 
-export const addLancamento = (marceneiro, lancamento) =>
-  addDoc(collection(db, 'lancamentos'), dadosLancamento(marceneiro, lancamento));
+// Foto do comprovante: num documento à parte (com o mesmo código do lançamento),
+// para o extrato continuar leve; só é baixada quando alguém abre o comprovante
+const dadosFoto = (marceneiro, foto) => ({ marcId: marceneiro.id, uid: marceneiro.uid, foto, criadoEm: serverTimestamp() });
+
+export async function addLancamento(marceneiro, lancamento, foto = null) {
+  const ref = doc(collection(db, 'lancamentos'));
+  const batch = writeBatch(db);
+  batch.set(ref, { ...dadosLancamento(marceneiro, lancamento), ...(foto ? { temFoto: true } : {}) });
+  if (foto) batch.set(doc(db, 'comprovantes', ref.id), dadosFoto(marceneiro, foto));
+  await batch.commit();
+}
+
+export async function anexarFoto(lancamento, marceneiro, foto) {
+  const batch = writeBatch(db);
+  batch.set(doc(db, 'comprovantes', lancamento.id), dadosFoto(marceneiro, foto));
+  batch.update(doc(db, 'lancamentos', lancamento.id), { temFoto: true });
+  await batch.commit();
+}
+
+export async function removerFoto(lancamento) {
+  const batch = writeBatch(db);
+  batch.delete(doc(db, 'comprovantes', lancamento.id));
+  batch.update(doc(db, 'lancamentos', lancamento.id), { temFoto: false });
+  await batch.commit();
+}
+
+export async function buscarFoto(lancId) {
+  return (await getDoc(doc(db, 'comprovantes', lancId))).data()?.foto ?? null;
+}
 
 // Divide em centavos para a soma das parcelas bater exatamente com o total
 export function dividirParcelas(total, parcelas, dataInicio) {
@@ -226,10 +278,10 @@ export const cancelarAgendado = id =>
   updateDoc(doc(db, 'lancamentos', id), { cancelado: true, canceladoEm: serverTimestamp() });
 
 // Edição guarda como era antes, para ficar registrado no comprovante
-export function editarLancamento(lancamento, { valor, desc, cliente, data }) {
-  const antes = { valor: lancamento.valor, desc: lancamento.desc, cliente: lancamento.cliente || '', data: lancamento.data };
+export function editarLancamento(lancamento, { valor, desc, cliente, obra, data }) {
+  const antes = { valor: lancamento.valor, desc: lancamento.desc, cliente: lancamento.cliente || '', obra: lancamento.obra || '', data: lancamento.data };
   return updateDoc(doc(db, 'lancamentos', lancamento.id), {
-    valor: roundCents(valor), desc, cliente, data,
+    valor: roundCents(valor), desc, cliente, obra, data,
     alteracoes: arrayUnion({ em: new Date().toISOString(), antes }),
   });
 }
@@ -278,14 +330,21 @@ async function responder(pedido, status, campos, extra) {
 }
 
 // Aprovar gera a retirada no extrato, tudo de uma vez. O valor pode ser menor que o pedido.
-export const aprovarPedido = (pedido, marceneiro, data, { valor, resposta = '' }) =>
-  responder(pedido, 'aprovado', { valorAprovado: roundCents(valor), resposta },
-    tx => tx.set(doc(collection(db, 'lancamentos')), dadosLancamento(marceneiro, {
-      tipo: 'debito',
-      data,
-      desc: pedido.motivo ? `Retirada pedida - ${pedido.motivo}` : 'Retirada pedida',
-      valor,
-    })));
+// Com foto, o comprovante (ex.: print do PIX) fica junto da retirada.
+export const aprovarPedido = (pedido, marceneiro, data, { valor, resposta = '', foto = null }) =>
+  responder(pedido, 'aprovado', { valorAprovado: roundCents(valor), resposta }, tx => {
+    const ref = doc(collection(db, 'lancamentos'));
+    tx.set(ref, {
+      ...dadosLancamento(marceneiro, {
+        tipo: 'debito',
+        data,
+        desc: pedido.motivo ? `Retirada pedida - ${pedido.motivo}` : 'Retirada pedida',
+        valor,
+      }),
+      ...(foto ? { temFoto: true } : {}),
+    });
+    if (foto) tx.set(doc(db, 'comprovantes', ref.id), dadosFoto(marceneiro, foto));
+  });
 
 export const recusarPedido = (pedido, resposta = '') => responder(pedido, 'recusado', { resposta });
 

@@ -113,6 +113,11 @@
         <input name="cliente" autocomplete="off" placeholder="Ex: João da Silva">
         <div class="sugestoes" data-sugestoes-cliente></div>
       </label>
+      <label class="field">
+        <span>Obra (opcional)</span>
+        <input name="obra" autocomplete="off" maxlength="60" placeholder="Ex: Cozinha">
+        <div class="sugestoes" data-sugestoes-obra></div>
+      </label>
       <div class="field">
         <span>Liberação do valor</span>
         <div class="opcoes opcoes-2">
@@ -125,6 +130,14 @@
         <input type="date" name="data" required>
         <small class="hint">Até essa data o valor aparece como "a liberar" e não pode ser retirado.</small>
       </label>
+      <div class="field campo-foto">
+        <span>Foto do comprovante (opcional)</span>
+        <label class="btn btn-ghost btn-foto">
+          <input type="file" name="foto" accept="image/*" data-foto hidden>
+          <span data-foto-rotulo>Tirar foto ou escolher</span>
+        </label>
+        <img class="foto-previa" data-foto-previa alt="Foto escolhida" hidden>
+      </div>
       <div class="sheet-actions">
         <button type="button" class="btn btn-ghost" data-action="close">Cancelar</button>
         <button class="btn btn-green">Lançar serviço</button>
@@ -166,6 +179,14 @@
         <span>Data</span>
         <input type="date" name="data" required>
       </label>
+      <div class="field campo-foto">
+        <span>Foto do comprovante (opcional)</span>
+        <label class="btn btn-ghost btn-foto">
+          <input type="file" name="foto" accept="image/*" data-foto hidden>
+          <span data-foto-rotulo>Tirar foto ou escolher</span>
+        </label>
+        <img class="foto-previa" data-foto-previa alt="Foto escolhida" hidden>
+      </div>
       <div class="sheet-actions">
         <button type="button" class="btn btn-ghost" data-action="close">Cancelar</button>
         <button class="btn btn-red">Registrar retirada</button>
@@ -236,6 +257,14 @@
         <span id="responder-msg-rotulo">Recado para o marceneiro (opcional)</span>
         <input name="resposta" maxlength="200" autocomplete="off" placeholder="Ex: o restante fica para sexta">
       </label>
+      <div class="field campo-foto" id="responder-foto-campo">
+        <span>Foto do comprovante (opcional)</span>
+        <label class="btn btn-ghost btn-foto">
+          <input type="file" name="foto" accept="image/*" data-foto hidden>
+          <span data-foto-rotulo>Tirar foto ou escolher</span>
+        </label>
+        <img class="foto-previa" data-foto-previa alt="Foto escolhida" hidden>
+      </div>
       <p class="hint">O marceneiro recebe a resposta no app, por notificação e por e-mail.</p>
       <div class="sheet-actions">
         <button type="button" class="btn btn-ghost" data-action="close">Cancelar</button>
@@ -530,6 +559,11 @@
         <input name="cliente" autocomplete="off">
         <div class="sugestoes" data-sugestoes-cliente></div>
       </label>
+      <label class="field" id="editar-lanc-obra">
+        <span>Obra (opcional)</span>
+        <input name="obra" autocomplete="off" maxlength="60">
+        <div class="sugestoes" data-sugestoes-obra></div>
+      </label>
       <label class="field">
         <span>Data</span>
         <input type="date" name="data" required>
@@ -539,6 +573,20 @@
         <button class="btn btn-primary">Salvar alteração</button>
       </div>
     </form>
+  </dialog>
+
+  <!-- Painel geral: quanto foi de mão de obra num cliente ou numa obra -->
+  <dialog id="dlg-obra">
+    <div class="sheet">
+      <div class="sheet-head">
+        <div>
+          <h3 id="obra-titulo">Obra</h3>
+          <p class="hint" id="obra-subtitulo"></p>
+        </div>
+        <button type="button" class="icon-btn sm" data-action="close" aria-label="Fechar">✕</button>
+      </div>
+      <div id="obra-body"></div>
+    </div>
   </dialog>
 
   <!-- ==================== COMPROVANTE (todos) ==================== -->

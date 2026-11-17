@@ -322,10 +322,10 @@ function fazerBackup() {
   const primeira = planilha.getSheets()[0].setName('Lançamentos');
 
   escreverAba(primeira,
-    ['Marceneiro', 'Data', 'Tipo', 'Descrição', 'Cliente', 'Entrada', 'Saída', 'Situação', 'Lançado em'],
+    ['Marceneiro', 'Data', 'Tipo', 'Descrição', 'Cliente', 'Obra', 'Entrada', 'Saída', 'Situação', 'Lançado em'],
     lancamentos.map(l => [marceneiro(l.marcId), dataBR(l.data), l.tipo === 'credito' ? 'Entrada' : 'Saída', l.desc,
-      l.cliente || '', l.tipo === 'credito' ? l.valor : '', l.tipo === 'debito' ? l.valor : '', situacao(l), quando(l.criadoEm)]),
-    [6, 7]);
+      l.cliente || '', l.obra || '', l.tipo === 'credito' ? l.valor : '', l.tipo === 'debito' ? l.valor : '', situacao(l), quando(l.criadoEm)]),
+    [7, 8]);
 
   escreverAba(planilha.insertSheet('Pedidos'),
     ['Marceneiro', 'Pedido em', 'Valor', 'Motivo', 'Situação', 'Valor aprovado', 'Respondido em', 'Resposta'],
