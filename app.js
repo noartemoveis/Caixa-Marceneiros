@@ -201,6 +201,10 @@ const state = {
   movimentos: [],
   ferrAba: 'mov',          // mov (movimentação e histórico) | painel (itens e marceneiros)
   ferrBusca: '',           // busca no histórico de ferramentas
+  parafSel: '',            // aba Parafusos: item escolhido, o que está digitado, a quantidade e a linha marcada na lista
+  parafBusca: '',
+  parafQtd: 100,
+  parafAtivo: -1,
   ferrFiltro: 'Todos',     // categoria no painel de itens
   ferrPessoa: '',          // marceneiro escolhido no histórico ('' = todos)
   ferrForm: { ferramenta: '', pessoa: '', acao: 'retirada', obs: '' }, // formulário de movimentação
@@ -1406,6 +1410,237 @@ function abaRelatorio() {
       : '<p class="empty">Todas as ferramentas saíram pelo menos uma vez.</p>'}`;
 }
 
+// ---------- Peso dos parafusos ----------
+// Escolhe o parafuso, diz quantas peças quer e o app mostra quanto a balança deve marcar.
+// O peso de 1 peça vem de uma contagem: conta 50 a 100 peças à mão, pesa e divide.
+
+const PARAFUSOS_INICIAIS = [
+  {"cod": "1", "nome": "Parafuso 3x30 Flange", "peso": 1.22, "amostra": 100},
+  {"cod": "2", "nome": "Parafuso 3,5x22 Chato", "peso": 1.12, "amostra": 100},
+  {"cod": "3", "nome": "Parafuso 3,5x40 Chato", "peso": 1.55, "amostra": 100},
+  {"cod": "4", "nome": "Parafuso 4x14 Panela", "peso": 1.13, "amostra": 100},
+  {"cod": "5", "nome": "Parafuso 4x16 Chato", "peso": 1.14, "amostra": 100},
+  {"cod": "6", "nome": "Parafuso 4x25 Chato", "peso": 1.3, "amostra": 100},
+  {"cod": "7", "nome": "Parafuso 4x25 Panela", "peso": 1.66, "amostra": 100},
+  {"cod": "8", "nome": "Parafuso 4x30 Chato", "peso": 1.34, "amostra": 100},
+  {"cod": "9", "nome": "Parafuso 4x35 Chato", "peso": 1.7, "amostra": 100},
+  {"cod": "10", "nome": "Parafuso 4x50 Chato Hafele", "peso": 3.18, "amostra": 100},
+  {"cod": "11", "nome": "Parafuso 4x50 Panela", "peso": 2.7313, "amostra": 67},
+  {"cod": "12", "nome": "Parafuso 4,2x13 Chato", "peso": 1.06, "amostra": 100},
+  {"cod": "13", "nome": "Parafuso 4,5x20 Chato", "peso": 1.35, "amostra": 100},
+  {"cod": "14", "nome": "Parafuso 4,5x40 Chato", "peso": 2.46, "amostra": 100},
+  {"cod": "15", "nome": "Parafuso 4,5x45 Panela", "peso": 3.19, "amostra": 100},
+  {"cod": "16", "nome": "Parafuso 4,5x60 Chato", "peso": 3.56, "amostra": 100},
+  {"cod": "17", "nome": "Parafuso 4,8x25 Chato", "peso": 2.59, "amostra": 100},
+  {"cod": "18", "nome": "Parafuso 5x25 Chato", "peso": 1.97, "amostra": 100},
+  {"cod": "19", "nome": "Parafuso 5x30 Chato", "peso": 2.52, "amostra": 100},
+  {"cod": "20", "nome": "Parafuso 5x35 Chato", "peso": 2.84, "amostra": 100},
+  {"cod": "21", "nome": "Parafuso 5x40 Chato", "peso": 3.32, "amostra": 100},
+  {"cod": "22", "nome": "Parafuso 5x50 Chato", "peso": 4, "amostra": 100},
+  {"cod": "23", "nome": "Parafuso 5x60 Chato", "peso": 4.02, "amostra": 100},
+  {"cod": "24", "nome": "Parafuso 5x65 Chato", "peso": 4.42, "amostra": 50},
+  {"cod": "25", "nome": "Parafuso 5x70 Chato", "peso": 4.6, "amostra": 100},
+  {"cod": "26", "nome": "Parafuso 5,5x60 Chato", "peso": 7.27, "amostra": 100},
+  {"cod": "27", "nome": "Parafuso 5,5x70 Panela", "peso": null, "amostra": null},
+  {"cod": "29", "nome": "Parafuso 6x60 Chato", "peso": 6.5, "amostra": 100},
+  {"cod": "30", "nome": "Parafuso 6x70 Chato", "peso": 7.55, "amostra": 100},
+  {"cod": "31", "nome": "Parafuso 6x90 Chato", "peso": 9.01, "amostra": 100},
+  {"cod": "93", "nome": "Parafuso 4x50 Chato", "peso": null, "amostra": null},
+  {"cod": "28", "nome": "Parafuso 4x40 Chato", "peso": null, "amostra": null},
+  {"cod": "94", "nome": "Parafuso 4,5x50 Chato", "peso": null, "amostra": null},
+  {"cod": "48", "nome": "Bucha Fix D8", "peso": 1.08, "amostra": 100},
+  {"cod": "49", "nome": "Bucha Fix D10", "peso": null, "amostra": null},
+  {"cod": "50", "nome": "Bucha Fix D6", "peso": 0.55, "amostra": 100}
+];
+const QTDS_RAPIDAS = [50, 100, 200, 500, 1000, 2000];
+
+const normParaf = s => semAcento(String(s)).replace(/\./g, ',').replace(/[×*]/g, 'x');
+const numero = (n, casas) => n.toLocaleString('pt-BR', { maximumFractionDigits: casas });
+const lerDecimal = txt => Number(String(txt).trim().replace(/\./g, '').replace(',', '.'));
+
+function parafusos() {
+  return Object.entries(state.config.parafusos?.itens ?? {})
+    .map(([id, p]) => ({ id, ...p }))
+    .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { numeric: true }));
+}
+const parafusoSel = () => parafusos().find(p => p.id === state.parafSel);
+
+// Cada palavra digitada precisa aparecer no nome (ou no código); quem começa com ela vem primeiro
+function filtrarParafusos() {
+  const termos = normParaf(state.parafBusca).split(/\s+/).filter(Boolean);
+  const todos = parafusos();
+  if (!termos.length) return todos;
+  const comeca = p => (termos.every(t => ` ${normParaf(p.nome)}`.includes(` ${t}`)) ? 0 : 1);
+  return todos
+    .filter(p => termos.every(t => `${normParaf(p.nome)} ${p.cod ?? ''}`.includes(t)))
+    .sort((a, b) => comeca(a) - comeca(b));
+}
+
+const pesoTexto = p => (p.peso ? `${numero(p.peso, 2)} g` : 'sem peso');
+
+function parafListaHtml() {
+  const lista = filtrarParafusos();
+  if (!lista.length) return '<li class="paraf-nada">Nenhum item encontrado</li>';
+  return lista.map((p, i) => `
+    <li role="option" data-paraf-op="${p.id}" aria-selected="${i === state.parafAtivo}">
+      <b>${escapeHtml(p.nome)}</b><small>${pesoTexto(p)}</small>
+    </li>`).join('');
+}
+
+function parafResultadoHtml() {
+  const p = parafusoSel();
+  const qtd = parseInt(state.parafQtd, 10);
+  if (!p) return '<div class="paraf-vazio">Escolha um parafuso para ver o peso.</div>';
+  if (!p.peso) {
+    return `
+      <div class="paraf-aviso">
+        <b>${escapeHtml(p.nome)} ainda não tem peso cadastrado</b>
+        Conte de 50 a 100 peças à mão, pese e cadastre o peso para liberar este item.
+        <button type="button" class="btn btn-sm btn-ghost" data-action="editar-parafuso" data-id="${p.id}">Cadastrar o peso</button>
+      </div>`;
+  }
+  if (!(qtd > 0)) return '<div class="paraf-vazio">Digite a quantidade de peças.</div>';
+  const gramas = qtd * p.peso;
+  return `
+    <div class="paraf-resultado">
+      <small>Peso na balança</small>
+      <strong>${numero(gramas, gramas < 1000 ? 1 : 0)}<span>g</span></strong>
+      <p><b>${numero(qtd, 0)} un</b> de ${escapeHtml(p.nome)}${gramas >= 1000 ? ` · ${numero(gramas / 1000, 3)} kg` : ''}<br>
+        1 peça = ${numero(p.peso, 3)} g${p.amostra ? ` (amostra de ${p.amostra} un)` : ''}</p>
+      <hr>
+      <p>Zere a balança com o recipiente em cima (tara) e coloque as peças até marcar esse valor.</p>
+    </div>`;
+}
+
+function abaParafusos() {
+  const lista = parafusos();
+  if (!lista.length) {
+    return `
+      <section class="ferr-inicio">
+        <span class="qa-icon tone-amber">${icon('tool')}</span>
+        <strong>Peso dos parafusos</strong>
+        <p class="hint">Cadastre de uma vez os ${PARAFUSOS_INICIAIS.length} parafusos e buchas que já foram pesados.
+          Depois dá para corrigir e incluir outros.</p>
+        <button class="btn btn-primary btn-block" data-action="parafusos-iniciais">Cadastrar os ${PARAFUSOS_INICIAIS.length} itens</button>
+        <button class="link" data-action="novo-parafuso">Prefiro cadastrar um por um</button>
+      </section>`;
+  }
+  const qtd = parseInt(state.parafQtd, 10);
+  const semPeso = lista.filter(p => !p.peso).length;
+  const linhas = lista.map(p => `
+    <tr class="clicavel" data-action="editar-parafuso" data-id="${p.id}" title="Editar">
+      <td class="muted">${escapeHtml(p.cod || '-')}</td>
+      <td>${escapeHtml(p.nome)}</td>
+      <td class="num nowrap">${p.peso ? `${numero(p.peso, 3)} g` : '<span class="tag tag-amber">sem peso</span>'}</td>
+      <td class="num muted">${p.amostra ? `${p.amostra} un` : '-'}</td>
+    </tr>`).join('');
+
+  return `
+    <div class="ferr-split paraf">
+      <section class="ferr-card ferr-form">
+        <div class="field paraf-campo">
+          <span>Parafuso ou bucha</span>
+          <input type="text" data-paraf-busca data-manter-foco="paraf-busca" role="combobox" aria-controls="paraf-lista"
+            autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Digite ex.: 4x25, chato, 5x50…"
+            value="${escapeHtml(state.parafBusca)}">
+          <button type="button" class="paraf-limpar" data-action="paraf-limpar" aria-label="Limpar"${state.parafBusca ? '' : ' hidden'}>×</button>
+          <ul class="paraf-lista" id="paraf-lista" role="listbox" hidden></ul>
+        </div>
+        <label class="field">
+          <span>Quantidade de peças</span>
+          <input type="number" class="paraf-qtd" data-paraf-qtd data-manter-foco="paraf-qtd" inputmode="numeric" min="1" step="1"
+            value="${escapeHtml(String(state.parafQtd))}">
+        </label>
+        <div class="chips paraf-chips">
+          ${QTDS_RAPIDAS.map(q => `<button type="button" class="chip${q === qtd ? ' active' : ''}" data-action="paraf-qtd" data-q="${q}">${numero(q, 0)}</button>`).join('')}
+        </div>
+        <div id="paraf-resultado" aria-live="polite">${parafResultadoHtml()}</div>
+      </section>
+
+      <div>
+        <div class="ferr-topo">
+          <h3 class="ferr-titulo">Pesos cadastrados (${lista.length})${semPeso ? ` <span class="tag tag-amber">${semPeso} sem peso</span>` : ''}</h3>
+          <button class="btn btn-ghost btn-sm" data-action="novo-parafuso">${icon('plus')} Novo item</button>
+        </div>
+        <div class="tabela-wrap"><table class="tabela tabela-paraf">
+          <thead><tr><th>Cód. Omie</th><th>Item</th><th class="num">1 peça</th><th class="num">Amostra</th></tr></thead>
+          <tbody>${linhas}</tbody>
+        </table></div>
+        <p class="hint paraf-dica">Toque num item para corrigir o peso, o nome ou o código.</p>
+      </div>
+    </div>`;
+}
+
+// Atualiza só o resultado e os botões de quantidade (sem redesenhar a tela, para não perder o que está digitando)
+function atualizarParafuso() {
+  const caixa = $('#paraf-resultado');
+  if (!caixa) return;
+  caixa.innerHTML = parafResultadoHtml();
+  const qtd = parseInt(state.parafQtd, 10);
+  document.querySelectorAll('[data-action="paraf-qtd"]').forEach(b => b.classList.toggle('active', +b.dataset.q === qtd));
+  const limpar = $('.paraf-limpar');
+  if (limpar) limpar.hidden = !state.parafBusca;
+}
+
+function mostrarListaParafusos() {
+  const ul = $('#paraf-lista');
+  if (!ul) return;
+  ul.innerHTML = parafListaHtml();
+  ul.hidden = false;
+}
+
+function esconderListaParafusos() {
+  const ul = $('#paraf-lista');
+  if (ul) ul.hidden = true;
+  state.parafAtivo = -1;
+}
+
+function escolherParafuso(id) {
+  const p = parafusos().find(x => x.id === id);
+  if (!p) return;
+  state.parafSel = p.id;
+  state.parafBusca = p.nome;
+  state.parafAtivo = -1;
+  render();
+  const qtd = $('[data-paraf-qtd]');
+  qtd?.focus();
+  qtd?.select();
+  esconderListaParafusos(); // o redesenho devolveu o foco ao campo por um instante e reabriu a lista
+}
+
+function moverNaListaParafusos(passo) {
+  const lista = filtrarParafusos();
+  if (!lista.length) return;
+  if ($('#paraf-lista')?.hidden) mostrarListaParafusos();
+  state.parafAtivo = (state.parafAtivo + passo + lista.length) % lista.length;
+  document.querySelectorAll('[data-paraf-op]').forEach((li, i) => li.setAttribute('aria-selected', String(i === state.parafAtivo)));
+  document.querySelectorAll('[data-paraf-op]')[state.parafAtivo]?.scrollIntoView({ block: 'nearest' });
+}
+
+function abrirParafuso(id = '') {
+  const p = parafusos().find(x => x.id === id);
+  $('#parafuso-titulo').textContent = p ? 'Editar item' : 'Novo parafuso ou bucha';
+  $('#parafuso-excluir').hidden = !p;
+  openDialog('dlg-parafuso', {
+    parafusoId: id,
+    cod: p?.cod ?? '',
+    nome: p?.nome ?? '',
+    amostra: p?.amostra ?? '',
+    total: p?.peso && p?.amostra ? numero(Math.round(p.peso * p.amostra * 100) / 100, 2) : '',
+  });
+  atualizarCalculoParafuso();
+}
+
+// Mostra na hora o peso de 1 peça enquanto digita a contagem
+function atualizarCalculoParafuso() {
+  const f = $('#dlg-parafuso form').elements;
+  const amostra = parseInt(f.amostra.value, 10);
+  const total = lerDecimal(f.total.value);
+  $('#parafuso-calculo').innerHTML = amostra > 0 && total > 0
+    ? `1 peça = <b>${numero(total / amostra, 3)} g</b>`
+    : 'Deixe vazio se ainda não pesou (o item fica como "sem peso").';
+}
+
 function viewFerramentas() {
   const header = `
     <header class="topbar">
@@ -1432,12 +1667,12 @@ function viewFerramentas() {
       </div>`;
   }
 
-  const ABAS = [['mov', 'Movimentação'], ['painel', 'Painel de itens'], ['relatorio', 'Relatório']];
-  const conteudo = { mov: abaMovimentacao, painel: abaPainelItens, relatorio: abaRelatorio }[state.ferrAba] ?? abaMovimentacao;
+  const ABAS = [['mov', 'Movimentação'], ['painel', 'Painel de itens'], ['relatorio', 'Relatório'], ['parafusos', 'Parafusos']];
+  const conteudo = { mov: abaMovimentacao, painel: abaPainelItens, relatorio: abaRelatorio, parafusos: abaParafusos }[state.ferrAba] ?? abaMovimentacao;
   return `
     <div class="ferr">
       ${header}
-      <div class="segmented segmented-3 ferr-abas">
+      <div class="segmented segmented-4 ferr-abas">
         ${ABAS.map(([id, rotulo]) => `<button type="button" class="${state.ferrAba === id ? 'active' : ''}" data-action="ferr-aba" data-aba="${id}">${rotulo}</button>`).join('')}
       </div>
       ${conteudo()}
@@ -1748,7 +1983,7 @@ function render() {
   if (foco) {
     const campo = document.querySelector(`[data-manter-foco="${foco[0]}"]`);
     campo?.focus();
-    campo?.setSelectionRange(foco[1], foco[1]);
+    if (foco[1] != null) campo?.setSelectionRange(foco[1], foco[1]); // campo de número não tem cursor
   }
 }
 
@@ -1841,7 +2076,7 @@ function aoMudarLogin(user) {
   fecharJanelas(); // nada fica aberto de outra sessão
   Object.assign(state, {
     user, marceneiros: [], lancamentos: [], pedidos: [], fechamentos: [], saldoOculto: false, filtro: filtroInicial(), busca: '',
-    ferramentas: [], equipe: [], movimentos: [], ferrAba: 'mov', ferrBusca: '', ferrFiltro: 'Todos', ferrPessoa: '', ferrForm: formMovVazio(),
+    ferramentas: [], equipe: [], movimentos: [], ferrAba: 'mov', ferrBusca: '', ferrFiltro: 'Todos', ferrPessoa: '', ferrForm: formMovVazio(), parafSel: '', parafBusca: '', parafQtd: 100, parafAtivo: -1,
     ferrPeriodo: periodoPadraoHistorico(), movimentosAntigos: [], historicoBuscado: new Set(), historicoTodo: false,
     carregandoHistorico: false, config: {},
   });
@@ -2545,6 +2780,48 @@ const actions = {
     openDialog('dlg-prazos', valores);
     form.elements[CHAVE_TIPO[TIPOS_FERRAMENTA[0]]].focus();
   },
+  'paraf-limpar': () => {
+    state.parafSel = '';
+    state.parafBusca = '';
+    render();
+    $('[data-paraf-busca]')?.focus();
+  },
+  'paraf-qtd': el => {
+    state.parafQtd = Number(el.dataset.q);
+    const campo = $('[data-paraf-qtd]');
+    if (campo) campo.value = state.parafQtd;
+    atualizarParafuso();
+  },
+  'novo-parafuso': () => abrirParafuso(),
+  'editar-parafuso': el => abrirParafuso(el.dataset.id),
+  'excluir-parafuso': async () => {
+    const form = $('#dlg-parafuso form');
+    const id = form.elements.parafusoId.value;
+    const p = parafusos().find(x => x.id === id);
+    if (!p) return;
+    if (!await confirmar({ titulo: 'Excluir este item?', corpo: `<b>${escapeHtml(p.nome)}</b> sai da lista de pesos.`, botao: 'Excluir', tom: 'red' })) return;
+    if (!exigeInternet()) return;
+    try {
+      await Store.excluirParafuso(id);
+      $('#dlg-parafuso').close();
+      if (state.parafSel === id) { state.parafSel = ''; state.parafBusca = ''; }
+      toast('Item excluído.');
+    } catch (err) {
+      fail(mensagemErro(err));
+    }
+  },
+  'parafusos-iniciais': async el => {
+    if (!exigeInternet()) return;
+    el.disabled = true;
+    try {
+      await Store.cadastrarParafusos(PARAFUSOS_INICIAIS);
+      toast('Lista de pesos cadastrada!');
+    } catch (err) {
+      fail(mensagemErro(err));
+    } finally {
+      el.disabled = false;
+    }
+  },
   'ferr-aba': el => {
     state.ferrAba = el.dataset.aba;
     render();
@@ -3034,6 +3311,25 @@ const forms = {
     toast('Prazos salvos.');
   },
 
+  // Peso de um parafuso: pela contagem (peças contadas e o peso total que a balança marcou)
+  async parafuso(f) {
+    const id = f.parafusoId.value;
+    const nome = f.nome.value.trim();
+    const repetido = parafusos().find(p => p.id !== id && normParaf(p.nome) === normParaf(nome));
+    if (repetido) return fail(`${repetido.nome} já está na lista.`);
+    let peso = null;
+    let amostra = null;
+    if (f.amostra.value.trim() || f.total.value.trim()) {
+      amostra = parseInt(f.amostra.value, 10);
+      const total = lerDecimal(f.total.value);
+      if (!(amostra >= 1 && amostra <= 10000)) return fail('Digite quantas peças você contou.');
+      if (!(total > 0)) return fail('Digite o peso total (em gramas) que a balança marcou.');
+      peso = Math.round((total / amostra) * 10000) / 10000;
+    }
+    await Store.salvarParafuso(id, { cod: f.cod.value.trim(), nome, peso, amostra });
+    toast(id ? 'Item atualizado.' : 'Item cadastrado.');
+  },
+
   // Retirada ou devolução (uma ou várias ferramentas), pelo formulário da aba Movimentação
   async movFerramenta() {
     const { acao, itens, pessoa: pessoaId, obs, estado } = state.ferrForm;
@@ -3157,6 +3453,60 @@ document.addEventListener('input', e => {
   if (e.target.matches('[data-busca-ferramentas]')) {
     state.ferrBusca = e.target.value;
     $('#ferr-historico').innerHTML = historicoFerramentasHtml();
+  }
+  // Aba Parafusos: digitar procura na lista; mudar a quantidade refaz a conta
+  if (e.target.matches('[data-paraf-busca]')) {
+    state.parafBusca = e.target.value;
+    state.parafSel = '';
+    state.parafAtivo = -1;
+    mostrarListaParafusos();
+    atualizarParafuso();
+  }
+  if (e.target.matches('[data-paraf-qtd]')) {
+    state.parafQtd = e.target.value;
+    atualizarParafuso();
+  }
+  if (e.target.form?.dataset.form === 'parafuso') atualizarCalculoParafuso();
+});
+
+// Lista de parafusos: abre ao tocar no campo, fecha ao sair; setas e Enter também escolhem
+document.addEventListener('focusin', e => {
+  if (e.target.matches('[data-paraf-busca]')) {
+    e.target.select();
+    mostrarListaParafusos();
+  }
+  if (e.target.matches('[data-paraf-qtd]')) e.target.select();
+});
+document.addEventListener('focusout', e => {
+  if (!e.target.matches('[data-paraf-busca]')) return;
+  setTimeout(() => {
+    if (document.activeElement?.matches('[data-paraf-busca]')) return; // voltou para o campo (tela redesenhada)
+    esconderListaParafusos();
+    // Digitou o nome inteiro sem tocar na lista: escolhe assim mesmo
+    if (!state.parafSel) {
+      const igual = parafusos().find(p => normParaf(p.nome) === normParaf(state.parafBusca));
+      if (igual) escolherParafuso(igual.id);
+    }
+  }, 150);
+});
+document.addEventListener('mousedown', e => {
+  const op = e.target.closest('[data-paraf-op]');
+  if (!op) return;
+  e.preventDefault(); // não tira o foco do campo antes de escolher
+  escolherParafuso(op.dataset.parafOp);
+});
+document.addEventListener('keydown', e => {
+  if (!e.target.matches('[data-paraf-busca]')) return;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    moverNaListaParafusos(e.key === 'ArrowDown' ? 1 : -1);
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    const lista = filtrarParafusos();
+    const p = state.parafAtivo > -1 ? lista[state.parafAtivo] : lista.length === 1 ? lista[0] : null;
+    if (p) escolherParafuso(p.id);
+  } else if (e.key === 'Escape') {
+    esconderListaParafusos();
   }
 });
 

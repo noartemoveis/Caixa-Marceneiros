@@ -22,6 +22,7 @@
                            alteracoes?, excluido?, excluidoEm? }
                          acao: 'retirada' | 'devolucao' (estado 'ok' | 'defeito') | 'defeito' | 'assistencia' | 'conserto' | 'revisao'
      config/ferramentas → { prazos: { maquina, ferramenta, broca, outro } }  (dias até a ferramenta contar como atrasada)
+    config/parafusos   → { itens: { [id]: { cod, nome, peso, amostra } } }  (peso de 1 peça em gramas, pela contagem de amostra)
    ========================================================= */
 
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
@@ -32,7 +33,7 @@ import {
 import {
   getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
   collection, doc, query, where, onSnapshot, getDocs,
-  addDoc, setDoc, updateDoc, deleteDoc, writeBatch, runTransaction, serverTimestamp, arrayUnion,
+  addDoc, setDoc, updateDoc, deleteDoc, deleteField, writeBatch, runTransaction, serverTimestamp, arrayUnion,
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 import { getMessaging, getToken, isSupported } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging.js';
 import { firebaseConfig, ADMIN_EMAIL, EMAIL_WEBHOOK_URL, VAPID_KEY } from './firebase-config.js';
@@ -317,6 +318,14 @@ export async function movimentosDaFerramenta(ferramentaId) {
 }
 
 export const salvarPrazos = prazos => setDoc(doc(db, 'config', 'ferramentas'), { prazos }, { merge: true });
+
+// Peso dos parafusos: todos num documento só (são poucos itens), cada um com um código próprio
+const refParafusos = () => doc(db, 'config', 'parafusos');
+const novoIdParafuso = () => `p${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+export const salvarParafuso = (id, item) => setDoc(refParafusos(), { itens: { [id || novoIdParafuso()]: item } }, { merge: true });
+export const excluirParafuso = id => updateDoc(refParafusos(), { [`itens.${id}`]: deleteField() });
+export const cadastrarParafusos = lista =>
+  setDoc(refParafusos(), { itens: Object.fromEntries(lista.map(p => [novoIdParafuso(), p])) }, { merge: true });
 
 export const addFerramenta = ({ codigo, nome, tipo, revisaoMeses = 0 }) =>
   addDoc(collection(db, 'ferramentas'), {

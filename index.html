@@ -370,6 +370,45 @@
     </form>
   </dialog>
 
+  <!-- Peso de um parafuso ou bucha (aba Parafusos das ferramentas) -->
+  <dialog id="dlg-parafuso">
+    <form class="sheet" data-form="parafuso">
+      <input type="hidden" name="parafusoId">
+      <div class="sheet-head">
+        <h3 id="parafuso-titulo">Novo parafuso ou bucha</h3>
+        <button type="button" class="icon-btn sm" data-action="close" aria-label="Fechar">✕</button>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span>Código no Omie</span>
+          <input name="cod" autocomplete="off" maxlength="12" placeholder="Ex: 6">
+        </label>
+        <span></span>
+      </div>
+      <label class="field">
+        <span>Nome</span>
+        <input name="nome" required autocomplete="off" maxlength="60" placeholder="Ex: Parafuso 4x25 Chato">
+      </label>
+      <p class="hint">Para achar o peso de 1 peça: conte de 50 a 100 peças à mão, coloque na balança (com a tara feita) e anote o total.</p>
+      <div class="field-row">
+        <label class="field">
+          <span>Peças contadas</span>
+          <input name="amostra" type="number" inputmode="numeric" min="1" max="10000" step="1" placeholder="Ex: 100">
+        </label>
+        <label class="field">
+          <span>Peso total (g)</span>
+          <input name="total" inputmode="decimal" autocomplete="off" maxlength="10" placeholder="Ex: 130">
+        </label>
+      </div>
+      <p class="paraf-calculo" id="parafuso-calculo"></p>
+      <button type="button" class="btn btn-link-danger" id="parafuso-excluir" data-action="excluir-parafuso" hidden>Excluir este item</button>
+      <div class="sheet-actions">
+        <button type="button" class="btn btn-ghost" data-action="close">Cancelar</button>
+        <button class="btn btn-primary">Salvar</button>
+      </div>
+    </form>
+  </dialog>
+
   <!-- Corrigir ou excluir uma movimentação do histórico -->
   <dialog id="dlg-movimento">
     <form class="sheet" data-form="editarMovimento">
