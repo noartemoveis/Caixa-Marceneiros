@@ -3,7 +3,7 @@
    Este arquivo NÃO roda no site: o conteúdo fica em script.google.com,
    publicado como "App da Web" (projeto "Caixa Marceneiros - Avisos").
 
-   Manda e-mail e notificação no celular, e faz o backup semanal no Drive.
+   Manda e-mail e notificação no celular, e faz o backup no Drive (segunda, quarta e sexta).
    Não usa nenhuma chave secreta:
    o script age com a permissão da conta Google dona do projeto Firebase.
 
@@ -294,8 +294,9 @@ function avisarFerramentasAtrasadas() {
     SITE_URL + '#ferramentas');
 }
 
-// ---------- Backup semanal no Google Drive (toda segunda às 7h) ----------
+// ---------- Backup no Google Drive (segunda, quarta e sexta, às 7h) ----------
 // Cria uma planilha com tudo (inclusive as ferramentas) na pasta "Caixa Nô Art - Backups" do Drive.
+// Se der erro, você recebe um aviso no celular e por e-mail.
 
 const PASTA_BACKUP = 'Caixa Nô Art - Backups';
 
@@ -375,6 +376,18 @@ function fazerBackup() {
   return planilha.getUrl();
 }
 
+// Chamado pelos horários automáticos: faz o backup e avisa se não deu certo
+function backupAgendado() {
+  try {
+    fazerBackup();
+  } catch (err) {
+    console.error('Backup: ' + err);
+    const texto = 'O backup de hoje não foi feito. Erro: ' + err + '. O próximo tenta de novo no horário normal; se repetir, abra o script de avisos.';
+    try { enviarNotificacao('admin', 'O backup falhou', texto, SITE_URL); } catch (e) { console.error(e); }
+    MailApp.sendEmail(ADMIN_EMAIL, 'Caixa Nô Art: o backup falhou', texto);
+  }
+}
+
 function escreverAba(aba, cabecalho, linhas, colunasDinheiro) {
   aba.getRange(1, 1, 1, cabecalho.length).setValues([cabecalho])
     .setFontWeight('bold').setBackground('#A0522D').setFontColor('#FFFFFF');
@@ -392,10 +405,11 @@ function pastaDeBackup() {
 }
 
 // ---------- Rotinas automáticas ----------
-// Rode esta função UMA vez pelo editor: liga o aviso diário (8h) e o backup semanal (segunda, 7h)
+// Rode esta função UMA vez pelo editor: liga o aviso diário (8h) e o backup (segunda, quarta e sexta, 7h)
 function instalarRotinas() {
   ScriptApp.getProjectTriggers().forEach(t => ScriptApp.deleteTrigger(t));
   ScriptApp.newTrigger('avisarAgendadosDeHoje').timeBased().atHour(8).everyDays(1).inTimezone(FUSO).create();
-  ScriptApp.newTrigger('fazerBackup').timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(7).inTimezone(FUSO).create();
+  [ScriptApp.WeekDay.MONDAY, ScriptApp.WeekDay.WEDNESDAY, ScriptApp.WeekDay.FRIDAY].forEach(dia =>
+    ScriptApp.newTrigger('backupAgendado').timeBased().onWeekDay(dia).atHour(7).inTimezone(FUSO).create());
   fazerBackup(); // já deixa o primeiro backup pronto
 }
