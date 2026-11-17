@@ -148,8 +148,8 @@ function valorDe(v) {
   return null;
 }
 
-// Todos os documentos de uma coleção (de 300 em 300)
-function listar(colecao) {
+// Todos os documentos de uma coleção (de 300 em 300), do jeito que o Firestore guarda
+function listarBrutos(colecao) {
   let documentos = [];
   let pagina = '';
   do {
@@ -159,8 +159,11 @@ function listar(colecao) {
     documentos = documentos.concat(resposta.documents || []);
     pagina = resposta.nextPageToken || '';
   } while (pagina);
-  return documentos.map(comoObjeto);
+  return documentos;
 }
+
+// Todos os documentos de uma coleção, como objetos comuns
+const listar = colecao => listarBrutos(colecao).map(comoObjeto);
 
 const hojeISO = () => Utilities.formatDate(new Date(), FUSO, 'yyyy-MM-dd');
 const diaDe = data => Utilities.formatDate(data, FUSO, 'yyyy-MM-dd');
@@ -295,8 +298,8 @@ function avisarFerramentasAtrasadas() {
 }
 
 // ---------- Backup no Google Drive (segunda, quarta e sexta, às 7h) ----------
-// Cria uma planilha com tudo (inclusive as ferramentas) na pasta "Caixa Nô Art - Backups" do Drive.
-// Se der erro, você recebe um aviso no celular e por e-mail.
+// Cria uma planilha com tudo (inclusive as ferramentas) na pasta "Caixa Nô Art - Backups" do Drive,
+// e um arquivo completo (.json) que serve para restaurar os dados. Se der erro, você recebe um aviso no celular e por e-mail.
 
 const PASTA_BACKUP = 'Caixa Nô Art - Backups';
 
@@ -373,7 +376,46 @@ function fazerBackup() {
     []);
 
   DriveApp.getFileById(planilha.getId()).moveTo(pastaDeBackup());
+  salvarArquivoCompleto(hoje);
   return planilha.getUrl();
+}
+
+// ---------- Arquivo completo (para restaurar) ----------
+// Além da planilha (boa para consultar), cada backup salva um arquivo .json com todos os dados
+// exatamente como estão no banco, com os mesmos códigos. Com ele dá para recolocar tudo no app de uma vez.
+// Fica de fora: as fotos dos comprovantes (pesadas) e os aparelhos de notificação (cada um ativa de novo).
+
+const COLECOES_COMPLETAS = ['marceneiros', 'lancamentos', 'pedidos', 'fechamentos', 'ferramentas', 'equipe', 'movimentos', 'config'];
+
+function salvarArquivoCompleto(hoje) {
+  const colecoes = {};
+  COLECOES_COMPLETAS.forEach(nome => {
+    colecoes[nome] = listarBrutos(nome).map(d => ({ id: d.name.split('/').pop(), fields: d.fields || {} }));
+  });
+  const conteudo = JSON.stringify({ versao: 1, projeto: PROJETO, feitoEm: new Date().toISOString(), colecoes: colecoes });
+  pastaDeBackup().createFile('Caixa Nô Art - completo ' + hoje + '.json', conteudo, MimeType.PLAIN_TEXT);
+}
+
+// Recoloca no banco os dados de um arquivo completo. NÃO aparece na lista de funções de propósito
+// (o "_" no fim do nome esconde), para ninguém rodar sem querer: peça ajuda antes de usar.
+// Regrava cada registro do arquivo com o mesmo código; o que foi criado depois do backup continua no banco.
+function restaurarBackup_(nomeDoArquivo) {
+  const arquivos = pastaDeBackup().getFilesByName(nomeDoArquivo);
+  if (!arquivos.hasNext()) throw new Error('Arquivo não encontrado na pasta de backups: ' + nomeDoArquivo);
+  const dados = JSON.parse(arquivos.next().getBlob().getDataAsString());
+  if (dados.projeto !== PROJETO) throw new Error('Esse arquivo é de outro projeto: ' + dados.projeto);
+  const base = 'projects/' + PROJETO + '/databases/(default)/documents/';
+  let gravados = 0;
+  Object.keys(dados.colecoes).forEach(nome => {
+    const docs = dados.colecoes[nome];
+    for (let i = 0; i < docs.length; i += 400) {
+      const writes = docs.slice(i, i + 400).map(d => ({ update: { name: base + nome + '/' + d.id, fields: d.fields } }));
+      const r = googleApi(FIRESTORE.replace(/\/documents$/, '/documents:batchWrite'), { writes: writes });
+      if (r.codigo !== 200) throw new Error('Firestore ' + r.codigo + ': ' + r.texto);
+      gravados += writes.length;
+    }
+  });
+  console.log('Restaurados ' + gravados + ' registros de ' + nomeDoArquivo);
 }
 
 // Chamado pelos horários automáticos: faz o backup e avisa se não deu certo
