@@ -647,7 +647,7 @@ function viewAdmin() {
 
     <button class="painel-atalho" data-action="abrir-painel">
       <span class="qa-icon tone-accent">${icon('chart')}</span>
-      <span><strong>Painel geral</strong><small>Totais do período, por marceneiro e por cliente</small></span>
+      <span><strong>Painel geral</strong><small>Totais do período, por marceneiro, por cliente e por obra</small></span>
       ${icon('chevronRight')}
     </button>
 
@@ -1557,10 +1557,18 @@ function lerDecimal(txt) {
   return Number(/^\d{1,3}(\.\d{3})+$/.test(t) ? t.replace(/\./g, '') : t);
 }
 
+// Ordem da lista: tipo (bucha, parafuso), depois a grossura e o comprimento (3x30 vem antes de 3,5x22)
+function medidaParafuso(nome) {
+  const m = /(\d+(?:[.,]\d+)?)\s*x\s*(\d+(?:[.,]\d+)?)/i.exec(nome) || /D\s*(\d+(?:[.,]\d+)?)/i.exec(nome);
+  return m ? [Number(m[1].replace(',', '.')), Number((m[2] || '0').replace(',', '.'))] : [Infinity, Infinity];
+}
+
 function parafusos() {
   return Object.entries(state.config.parafusos?.itens ?? {})
-    .map(([id, p]) => ({ id, ...p }))
-    .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { numeric: true }));
+    .map(([id, p]) => ({ id, ...p, medida: medidaParafuso(p.nome) }))
+    .sort((a, b) => a.nome.split(' ')[0].localeCompare(b.nome.split(' ')[0], 'pt-BR')
+      || a.medida[0] - b.medida[0] || a.medida[1] - b.medida[1]
+      || a.nome.localeCompare(b.nome, 'pt-BR', { numeric: true }));
 }
 const parafusoSel = () => parafusos().find(p => p.id === state.parafSel);
 
