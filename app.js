@@ -213,6 +213,8 @@ const state = {
   parafBusca: '',
   parafQtd: 100,
   parafAtivo: -1,
+  parafModo: 'pesar',      // pesar (quanto a balança deve marcar) | contar (quantas peças tem pelo peso)
+  parafPesos: [''],        // modo contar: o peso de cada pote (soma tudo)
   ferrFiltro: 'Todos',     // categoria no painel de itens
   ferrPessoa: '',          // marceneiro escolhido no histórico ('' = todos)
   ferrForm: { ferramenta: '', pessoa: '', acao: 'retirada', obs: '' }, // formulário de movimentação
@@ -1549,7 +1551,11 @@ const QTDS_RAPIDAS = [50, 100, 200, 500, 1000, 2000];
 
 const normParaf = s => semAcento(String(s)).replace(/\./g, ',').replace(/[×*]/g, 'x');
 const numero = (n, casas) => n.toLocaleString('pt-BR', { maximumFractionDigits: casas });
-const lerDecimal = txt => Number(String(txt).trim().replace(/\./g, '').replace(',', '.'));
+function lerDecimal(txt) {
+  const t = String(txt).trim().replace(/\s/g, '');
+  if (t.includes(',')) return Number(t.replace(/\./g, '').replace(',', '.'));
+  return Number(/^\d{1,3}(\.\d{3})+$/.test(t) ? t.replace(/\./g, '') : t);
+}
 
 function parafusos() {
   return Object.entries(state.config.parafusos?.itens ?? {})
@@ -1592,6 +1598,7 @@ function parafResultadoHtml() {
         <button type="button" class="btn btn-sm btn-ghost" data-action="editar-parafuso" data-id="${p.id}">Cadastrar o peso</button>
       </div>`;
   }
+  if (state.parafModo === 'contar') return contagemHtml(p);
   if (!(qtd > 0)) return '<div class="paraf-vazio">Digite a quantidade de peças.</div>';
   const gramas = qtd * p.peso;
   return `
@@ -1603,6 +1610,58 @@ function parafResultadoHtml() {
       <hr>
       <p>Zere a balança com o recipiente em cima (tara) e coloque as peças até marcar esse valor.</p>
     </div>`;
+}
+
+// Modo "Quantas peças tem?": soma o peso de todos os potes e divide pelo peso de 1 peça
+const pesosDigitados = () => state.parafPesos.map(lerDecimal).filter(g => g > 0);
+
+function contagemHtml(p) {
+  const pesos = pesosDigitados();
+  const total = pesos.reduce((s, g) => s + g, 0);
+  if (!(total > 0)) return '<div class="paraf-vazio">Digite o peso que a balança marcou.</div>';
+  const pecas = Math.round(total / p.peso);
+  const margem = Math.max(1, Math.round(pecas * 0.02));
+  return `
+    <div class="paraf-resultado">
+      <small>Quantidade estimada</small>
+      <strong>${numero(pecas, 0)}<span>peças</span></strong>
+      <p><b>${numero(total, 1)} g</b>${pesos.length > 1 ? ` somando ${pesos.length} potes` : ''} de ${escapeHtml(p.nome)}<br>
+        1 peça = ${numero(p.peso, 3)} g${p.amostra ? ` (amostra de ${p.amostra} un)` : ''}</p>
+      <hr>
+      <p>É uma estimativa: pode variar umas ${numero(margem, 0)} peças para mais ou para menos.</p>
+    </div>`;
+}
+
+function camposPesar(qtd) {
+  return `
+        <label class="field">
+          <span>Quantidade de peças</span>
+          <input type="number" class="paraf-qtd" data-paraf-qtd data-manter-foco="paraf-qtd" inputmode="numeric" min="1" step="1"
+            value="${escapeHtml(String(state.parafQtd))}">
+        </label>
+        <div class="chips paraf-chips">
+          ${QTDS_RAPIDAS.map(q => `<button type="button" class="chip${q === qtd ? ' active' : ''}" data-action="paraf-qtd" data-q="${q}">${numero(q, 0)}</button>`).join('')}
+        </div>`;
+}
+
+// Um campo por pote; o total soma todos
+function camposContar() {
+  const varios = state.parafPesos.length > 1;
+  return `
+        <div class="field">
+          <span>${varios ? 'Peso de cada pote (g)' : 'Peso na balança (g)'}</span>
+          <div class="paraf-potes">
+            ${state.parafPesos.map((g, i) => `
+              <div class="paraf-pote">
+                ${varios ? `<small>Pote ${i + 1}</small>` : ''}
+                <input class="paraf-qtd" data-paraf-peso="${i}" data-manter-foco="paraf-peso-${i}" inputmode="decimal" autocomplete="off"
+                  maxlength="10" placeholder="Ex: 1.250" value="${escapeHtml(g)}">
+                ${varios ? `<button type="button" class="icon-btn sm" data-action="paraf-pote-tirar" data-i="${i}" aria-label="Tirar o pote ${i + 1}">✕</button>` : ''}
+              </div>`).join('')}
+          </div>
+          <small class="hint">Com o pote na balança, aperte a tara, coloque as peças e digite o peso.</small>
+        </div>
+        <button type="button" class="btn btn-ghost btn-sm" data-action="paraf-pote-mais">${icon('plus')} Somar outro pote</button>`;
 }
 
 function abaParafusos() {
@@ -1630,6 +1689,10 @@ function abaParafusos() {
   return `
     <div class="ferr-split paraf">
       <section class="ferr-card ferr-form">
+        <div class="segmented paraf-modo">
+          <button type="button" class="${state.parafModo === 'pesar' ? 'active' : ''}" data-action="paraf-modo" data-modo="pesar">Quanto pesar</button>
+          <button type="button" class="${state.parafModo === 'contar' ? 'active' : ''}" data-action="paraf-modo" data-modo="contar">Contar pelo peso</button>
+        </div>
         <div class="field paraf-campo">
           <span>Parafuso ou bucha</span>
           <input type="text" data-paraf-busca data-manter-foco="paraf-busca" role="combobox" aria-controls="paraf-lista"
@@ -1638,14 +1701,7 @@ function abaParafusos() {
           <button type="button" class="paraf-limpar" data-action="paraf-limpar" aria-label="Limpar"${state.parafBusca ? '' : ' hidden'}>×</button>
           <ul class="paraf-lista" id="paraf-lista" role="listbox" hidden></ul>
         </div>
-        <label class="field">
-          <span>Quantidade de peças</span>
-          <input type="number" class="paraf-qtd" data-paraf-qtd data-manter-foco="paraf-qtd" inputmode="numeric" min="1" step="1"
-            value="${escapeHtml(String(state.parafQtd))}">
-        </label>
-        <div class="chips paraf-chips">
-          ${QTDS_RAPIDAS.map(q => `<button type="button" class="chip${q === qtd ? ' active' : ''}" data-action="paraf-qtd" data-q="${q}">${numero(q, 0)}</button>`).join('')}
-        </div>
+        ${state.parafModo === 'contar' ? camposContar() : camposPesar(qtd)}
         <div id="paraf-resultado" aria-live="polite">${parafResultadoHtml()}</div>
       </section>
 
@@ -1694,7 +1750,7 @@ function escolherParafuso(id) {
   state.parafBusca = p.nome;
   state.parafAtivo = -1;
   render();
-  const qtd = $('[data-paraf-qtd]');
+  const qtd = $('[data-paraf-qtd]') ?? $('[data-paraf-peso]');
   qtd?.focus();
   qtd?.select();
   esconderListaParafusos(); // o redesenho devolveu o foco ao campo por um instante e reabriu a lista
@@ -2167,7 +2223,7 @@ function aoMudarLogin(user) {
   fecharJanelas(); // nada fica aberto de outra sessão
   Object.assign(state, {
     user, marceneiros: [], lancamentos: [], pedidos: [], fechamentos: [], saldoOculto: false, filtro: filtroInicial(), busca: '',
-    ferramentas: [], equipe: [], movimentos: [], ferrAba: 'mov', ferrBusca: '', ferrFiltro: 'Todos', ferrPessoa: '', ferrForm: formMovVazio(), parafSel: '', parafBusca: '', parafQtd: 100, parafAtivo: -1,
+    ferramentas: [], equipe: [], movimentos: [], ferrAba: 'mov', ferrBusca: '', ferrFiltro: 'Todos', ferrPessoa: '', ferrForm: formMovVazio(), parafSel: '', parafBusca: '', parafQtd: 100, parafAtivo: -1, parafModo: 'pesar', parafPesos: [''],
     ferrPeriodo: periodoPadraoHistorico(), movimentosAntigos: [], historicoBuscado: new Set(), historicoTodo: false,
     carregandoHistorico: false, config: {},
   });
@@ -3059,6 +3115,20 @@ const actions = {
     if (campo) campo.value = state.parafQtd;
     atualizarParafuso();
   },
+  'paraf-modo': el => {
+    state.parafModo = el.dataset.modo;
+    render();
+  },
+  'paraf-pote-mais': () => {
+    state.parafPesos.push('');
+    render();
+    const campos = document.querySelectorAll('[data-paraf-peso]');
+    campos[campos.length - 1]?.focus();
+  },
+  'paraf-pote-tirar': el => {
+    state.parafPesos.splice(Number(el.dataset.i), 1);
+    render();
+  },
   'novo-parafuso': () => abrirParafuso(),
   'editar-parafuso': el => abrirParafuso(el.dataset.id),
   'excluir-parafuso': async () => {
@@ -3779,6 +3849,10 @@ document.addEventListener('input', e => {
   }
   if (e.target.matches('[data-paraf-qtd]')) {
     state.parafQtd = e.target.value;
+    atualizarParafuso();
+  }
+  if (e.target.matches('[data-paraf-peso]')) {
+    state.parafPesos[Number(e.target.dataset.parafPeso)] = e.target.value;
     atualizarParafuso();
   }
   if (e.target.form?.dataset.form === 'parafuso') atualizarCalculoParafuso();

@@ -790,3 +790,10 @@ button.painel-linha { width: 100%; text-align: left; cursor: pointer; }
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
 .login-aviso strong { font-size: 18px; }
 .login-aviso p { font-size: 15px; }
+
+/* Aba Parafusos: "Quanto pesar" ou "Quantas peças tem?", com um campo por pote */
+.paraf-modo { margin: 0; }
+.paraf-potes { display: flex; flex-direction: column; gap: 8px; }
+.paraf-pote { display: flex; align-items: center; gap: 8px; }
+.paraf-pote small { color: var(--muted); font-size: 13px; font-weight: 600; white-space: nowrap; min-width: 52px; }
+.paraf-pote input { flex: 1; min-width: 0; }
